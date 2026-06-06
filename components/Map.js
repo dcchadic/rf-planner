@@ -656,7 +656,7 @@ return (
         style={{width:"100%",height:80}}
       />
 
-      <button onClick={importText}>Import</button>
+    {/* <button onClick={importText}>Import</button> */}
       <input type="file" onChange={uploadExcel}/>
 
       <hr/>
