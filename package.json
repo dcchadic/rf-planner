@@ -1,0 +1,38 @@
+{
+  "name": "rf-planner",
+  "version": "1.1.2",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "electron": "electron .",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "mapbox-gl": "^3.0.0",
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "serve": "^14.2.6",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.16",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "6.0.3"
+  },
+  "build": {
+    "appId": "com.rfplanner.app",
+    "productName": "RF Planner",
+    "files": [
+      "main.js",
+      "out/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
