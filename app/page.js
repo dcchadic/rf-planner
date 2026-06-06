@@ -57,30 +57,40 @@ map.on("click", (e) => {
       name: `${type}-${nodesRef.current.length + 1}`
     };
 
-    const el = document.createElement("div");
+   
+const el = document.createElement("div");
 
-    el.style.width = "14px";
-    el.style.height = "14px";
-    el.style.borderRadius = "50%";
-    el.style.cursor = "pointer";
+// ✅ MAKE IT BIGGER (so we KNOW it's working)
+el.style.width = "20px";
+el.style.height = "20px";
+el.style.borderRadius = "50%";
+el.style.border = "2px solid black";
+el.style.cursor = "pointer";
 
-    el.style.background =
-      type === "gateway" ? "blue" :
-      type === "lra" ? "orange" :
-      "green";
+// ✅ FORCE COLOR (very obvious)
+if (type === "gateway") {
+  el.style.background = "blue";
+} else if (type === "lra") {
+  el.style.background = "orange";
+} else {
+  el.style.background = "green";
+}
 
-    const marker = new mapboxgl.Marker({
-      element: el,
-      draggable: true
-    })
-      .setLngLat([lng, lat])
-      .addTo(mapRef.current);
+// ✅ DEBUG label inside marker
+el.innerHTML = type[0].toUpperCase();
 
-    marker.on("dragend", () => {
-      const p = marker.getLngLat();
-      node.lng = p.lng;
-      node.lat = p.lat;
-    });
+const marker = new mapboxgl.Marker({
+  element: el,
+  draggable: true
+})
+  .setLngLat([lng, lat])
+  .addTo(mapRef.current);
+
+// ✅ DEBUG drag confirmation
+marker.on("dragend", () => {
+  console.log("DRAG WORKING ✅");
+});
+
 
     new mapboxgl.Popup({ offset: 20 })
       .setText(node.name)
