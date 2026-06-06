@@ -22,6 +22,8 @@ const linksRef = useRef({});
   const [mode,setMode] = useState("sra");
   const [inputCoords,setInputCoords] = useState("");
   const [recommendations,setRecommendations] = useState([]);
+const [showOptimizePrompt, setShowOptimizePrompt] = useState(false);
+const [importedData, setImportedData] = useState([]);
 
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
@@ -151,7 +153,7 @@ setEditType(node.type);   // ✅ NEW
       if(d > a.range) continue;
 
       const p = calcPower(d);
-      const f = await getFresnel(a,b);
+     const f = { clear: 100 };
 
       // ✅ Allow ALL links, but penalize bad ones
       let penalty = 0;
@@ -269,6 +271,7 @@ if (!path || path.length < 2) continue;
 
         const f = { clear: 100 };
         const d = distance(p1,p2);
+const signal = calcPower(d);
 
         const lineId = `line-${i}-${j}`;
 
@@ -299,7 +302,12 @@ map.addSource(lineId,{
           type:"line",
           source:lineId,
           paint:{
-           "line-color": "#00ffff",
+           "line-color":
+signal > -70 ? "green" :
+      signal > -85 ? "yellow" :
+      signal > -100 ? "orange" :
+      "red",
+
             "line-width":3
           }
         });
@@ -327,7 +335,7 @@ map.addSource(labelId,{
       ]
     },
     properties: {
-      text: `${d.toFixed(2)} mi`
+     text: `${d.toFixed(2)} mi | ${signal.toFixed(0)} dBm`
     }
   }
 });
@@ -363,7 +371,8 @@ map.addLayer({
 
   function redraw(){ draw(); }
 
-  // ---------- ANALYSIS ----------
+ 
+// ---------- ANALYSIS ----------
 
 async function analyzeNetwork(){
 
@@ -379,6 +388,7 @@ async function analyzeNetwork(){
     if(reachesGateway) continue;
 
     let worstClear = 100;
+    let bestSignal = -999;
 
     for(const b of nodesRef.current){
 
@@ -387,21 +397,30 @@ async function analyzeNetwork(){
       const d = distance(a,b);
       if(d > a.range) continue;
 
-      const f = await getFresnel(a,b);
+      const f = { clear: 100 };
+      const signal = calcPower(d);
 
+      // ✅ Track worst Fresnel
       if(f.clear < worstClear){
         worstClear = f.clear;
+      }
+
+      // ✅ Track best signal
+      if(signal > bestSignal){
+        bestSignal = signal;
       }
     }
 
     const terrainBlocked = worstClear < 40;
 
+    // ✅ Height calculation (your existing logic)
     const neededBoost = Math.ceil((60 - worstClear) * 0.5);
     let targetHeight = a.height + neededBoost;
 
+    // ✅ UPDATED MAX RULES (your requirement)
     let maxHeight =
       a.type === "sra" ? 5 :
-      a.type === "lra" ? 20 :
+      a.type === "lra" ? 30 :
       a.type === "gateway" ? 30 : 999;
 
     let capped = false;
@@ -411,92 +430,213 @@ async function analyzeNetwork(){
       capped = true;
     }
 
-    if(terrainBlocked){
+    // ✅ SIGNAL CONDITION
+    const weakSignal = bestSignal < -90;
 
-      if(capped){
-        if(a.type === "sra"){
-          recs.push({
-            text: `⬆️ ${a.name.toUpperCase()}: Upgrade to LRA`
-          });
-        } else {
-          recs.push({
-            text: `⚠️ ${a.name.toUpperCase()}: Reposition`
-          });
-        }
-      } else {
+    // ✅ FINAL RECOMMENDATION LOGIC
+    if(terrainBlocked || weakSignal){
+
+      if(!capped){
+
         recs.push({
-          text: `🔧 ${a.name.toUpperCase()}: Set height to ~${targetHeight} ft`
+          text: `📡 ${a.name.toUpperCase()}: Set antenna height to ~${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
         });
+
+      } else {
+
+        if(a.type === "sra"){
+
+          recs.push({
+            text: `⬆️ ${a.name.toUpperCase()}: Max height reached (5 ft). Upgrade to LRA (${bestSignal.toFixed(0)} dBm)`
+          });
+
+        } else {
+
+          recs.push({
+            text: `📡 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
+          });
+
+        }
       }
 
     } else {
 
-      if(a.type === "sra"){
-        recs.push({
-          text: `⬆️ ${a.name.toUpperCase()}: Upgrade to LRA`
-        });
-      } else {
-        recs.push({
-          text: `⚠️ ${a.name.toUpperCase()}: Reposition`
-        });
-      }
+      recs.push({
+        text: `✅ ${a.name.toUpperCase()}: Good link (${bestSignal.toFixed(0)} dBm)`
+      });
+
     }
 
-  } // ✅ closes for(a loop)
+  }
 
   // ✅ FINAL OUTPUT
   if (recs.length === 0) {
     setRecommendations([
       { text: "✅ All nodes connected — no action needed" }
     ]);
-  } else {
+ 
+ } else {
     setRecommendations(recs);
   }
 
-} // ✅ closes analyzeNetwork()
+} 
 
-  // ---------- IMPORT / EXPORT ----------
-  function importText(){
-    inputCoords.split("\n").forEach(l=>{
-      const [name,lat,lng]=l.split(",");
-      if(!lat||!lng) return;
-      addNode(mapRef.current,parseFloat(lng),parseFloat(lat),"sra",name);
+
+function uploadExcel(e){
+
+
+  const reader = new FileReader();
+
+  reader.onload = (evt) => {
+
+    const wb = XLSX.read(new Uint8Array(evt.target.result));
+
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+    // ✅ store data for optimization
+    setImportedData(rows);
+
+    // ✅ show prompt
+    setShowOptimizePrompt(true);
+  };
+
+  reader.readAsArrayBuffer(e.target.files[0]);
+}
+
+function autoOptimizeNetwork(){
+
+  if(!importedData.length) return;
+
+  nodesRef.current = [];
+  const map = mapRef.current;
+
+  const recs = [];
+
+  // ✅ Primary gateway
+  const gateway = importedData[0];
+
+  addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
+
+  let count = 0;
+  const placedNodes = [];
+
+  for(let i = 1; i < importedData.length; i++){
+
+    if(count >= 25) break;
+
+    const r = importedData[i];
+
+    placedNodes.push(r);
+
+    addNode(map, r.Longitude, r.Latitude, "sra", r.Name);
+
+    count++;
+  }
+
+  // ✅ SINGLE MODEM CHECK
+  placedNodes.forEach(node => {
+
+    let canConnect = false;
+
+    for(const b of nodesRef.current){
+
+      const d = distance(
+        { lng: node.Longitude, lat: node.Latitude },
+        { lng: b.lng, lat: b.lat }
+      );
+
+      if(d < 1.5){
+        canConnect = true;
+        break;
+      }
+    }
+
+    if(!canConnect){
+      recs.push({
+        text: `📶 ${node.Name.toUpperCase()}: Add Single Modem`
+      });
+    }
+
+  });
+
+  // ✅ MULTI-GATEWAY LOGIC
+  let clusterCandidates = [];
+
+  placedNodes.forEach(node => {
+
+    let localCount = 0;
+
+    for(const other of placedNodes){
+
+      const d = distance(
+        { lng: node.Longitude, lat: node.Latitude },
+        { lng: other.Longitude, lat: other.Latitude }
+      );
+
+      if(d < 2){
+        localCount++;
+      }
+    }
+
+    if(localCount >= 6){
+      clusterCandidates.push(node);
+    }
+
+  });
+
+  // ✅ Add second gateway if valid
+  if(clusterCandidates.length > 0){
+
+    const g = clusterCandidates[0];
+
+    addNode(map, g.Longitude, g.Latitude, "gateway", "GATEWAY-2");
+
+    recs.push({
+      text: `📡 Secondary Gateway added (≥6 nodes)`
     });
   }
 
-  function uploadExcel(e){
+  draw();
 
-    const reader=new FileReader();
+  setRecommendations(prev => [...prev, ...recs]);
 
-    reader.onload=(evt)=>{
-      const wb=XLSX.read(new Uint8Array(evt.target.result));
+  setShowOptimizePrompt(false);
+}
 
-      XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
-        .forEach(r=>{
-          addNode(mapRef.current,r.Longitude,r.Latitude,"sra",r.Name);
-        });
-    };
 
-    reader.readAsArrayBuffer(e.target.files[0]);
-  }
-
-  function saveNetwork(){
-
-    const data = nodesRef.current;
-
-    const blob = new Blob([JSON.stringify(data,null,2)]);
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href=url;
-    a.download="rf-network.json";
-    a.click();
-  }
-
-  // ---------- UI ----------
  
 return (
   <div style={{display:"flex",height:"100vh"}}>
+
+{showOptimizePrompt && (
+  <div style={{
+    position:"absolute",
+    top:"30%",
+    left:"35%",
+    background:"#fff",
+    padding:20,
+    border:"2px solid black",
+    zIndex:1000
+  }}>
+    <div style={{marginBottom:10,fontWeight:"bold"}}>
+      Do you want to Auto-Optimize this network?
+    </div>
+
+    <button onClick={autoOptimizeNetwork} style={{marginRight:10}}>
+      Yes
+    </button>
+
+    <button onClick={()=>{
+      setShowOptimizePrompt(false);
+
+      importedData.forEach(r=>{
+        addNode(mapRef.current, r.Longitude, r.Latitude, "sra", r.Name);
+      });
+    }}>
+      No
+    </button>
+  </div>
+)}
 
     {/* ✅ SIDEBAR */}
     <div style={{width:300,padding:12}}>
