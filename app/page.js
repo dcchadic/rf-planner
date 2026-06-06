@@ -9,6 +9,8 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 export default function Page() {
 
+console.log("NEW CODE RUNNING ✅"); // ✅ ADD THIS HERE
+
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const nodesRef = useRef([]);
@@ -82,7 +84,7 @@ export default function Page() {
     <div style={{ display: "flex", height: "100vh" }}>
       
       <div style={{ width: 250, padding: 12 }}>
-        <h3>RF Planner</h3>
+        <h3>RF Planner - NEW VERSION</h3>
 
         <button onClick={() => setMode("gateway")}>Gateway</button>
         <button onClick={() => setMode("lra")}>LRA</button>
