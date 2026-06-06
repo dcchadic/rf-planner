@@ -16,8 +16,13 @@ console.log("NEW CODE RUNNING ✅"); // ✅ ADD THIS HERE
   const nodesRef = useRef([]);
 
   const [mode, setMode] = useState("sra");
+const modeRef = useRef(mode);
+ 
+useEffect(() => {
+  modeRef.current = mode;
+}, [mode]);
 
-  useEffect(() => {
+useEffect(() => {
 
     if (!containerRef.current) return;
 
@@ -30,9 +35,11 @@ console.log("NEW CODE RUNNING ✅"); // ✅ ADD THIS HERE
 
     mapRef.current = map;
 
-    map.on("click", (e) => {
-      addNode(e.lngLat.lng, e.lngLat.lat, mode);
-    });
+   
+map.on("click", (e) => {
+  addNode(e.lngLat.lng, e.lngLat.lat, modeRef.current);
+});
+
 
     return () => map.remove();
 
