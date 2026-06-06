@@ -13,10 +13,10 @@ const fresnelCache = {};
 
 export default function Map(){
 
-  const containerRef = useRef<any>(null);
+  const containerRef = useRef(null);
 const mapRef = useRef(null);
-const nodesRef = useRef<any[]>([]);
-const linksRef = useRef<any>({});
+const nodesRef = useRef([]);
+const linksRef = useRef({});
 
 
   const [mode,setMode] = useState("sra");
@@ -70,7 +70,7 @@ const [useFresnel, setUseFresnel] = useState(true);
 
     try{
       const res = await fetch(
-        `https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/${lng},${lat}.json?layers=contour&limit=1&access_token=${mapboxgl.accessToken}`
+       `https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/${lng},${lat}.json?layers=contour&limit=1&access_token=${mapboxgl.accessToken}`
       );
       const data = await res.json();
 
