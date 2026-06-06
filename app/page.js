@@ -34,7 +34,7 @@ export default function Page() {
 
     return () => map.remove();
 
-  }, [mode]);
+  }, []);
 
   function addNode(lng, lat, type) {
 
