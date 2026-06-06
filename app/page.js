@@ -31,7 +31,9 @@ export default function Page() {
       addNode(e.lngLat.lng, e.lngLat.lat, mode);
     });
 
-  }, []);
+    return () => map.remove();
+
+  }, [mode]);
 
   function addNode(lng, lat, type) {
 
@@ -39,77 +41,46 @@ export default function Page() {
       lng,
       lat,
       type,
-      name: type + "-" + (nodesRef.current.length + 1)
+      name: `${type}-${nodesRef.current.length + 1}`
     };
 
-    let color =
+    const el = document.createElement("div");
+
+    el.style.width = "14px";
+    el.style.height = "14px";
+    el.style.borderRadius = "50%";
+    el.style.cursor = "pointer";
+
+    el.style.background =
       type === "gateway" ? "blue" :
       type === "lra" ? "orange" :
       "green";
 
-    new mapboxgl.Marker({ color })
+    const marker = new mapboxgl.Marker({
+      element: el,
+      draggable: true
+    })
+      .setLngLat([lng, lat])
+      .addTo(mapRef.current);
+
+    marker.on("dragend", () => {
+      const p = marker.getLngLat();
+      node.lng = p.lng;
+      node.lat = p.lat;
+    });
+
+    new mapboxgl.Popup({ offset: 20 })
+      .setText(node.name)
       .setLngLat([lng, lat])
       .addTo(mapRef.current);
 
     nodesRef.current.push(node);
-
-    drawLines();
-  }
-
-  function drawLines() {
-
-    const map = mapRef.current;
-
-    // remove old lines
-    const layers = map.getStyle().layers || [];
-
-    layers.forEach(l => {
-      if (l.id.startsWith("line")) {
-        if (map.getLayer(l.id)) map.removeLayer(l.id);
-        if (map.getSource(l.id)) map.removeSource(l.id);
-      }
-    });
-
-    for (let i = 0; i < nodesRef.current.length; i++) {
-      for (let j = i + 1; j < nodesRef.current.length; j++) {
-
-        const a = nodesRef.current[i];
-        const b = nodesRef.current[j];
-
-        const id = `line-${i}-${j}`;
-
-        map.addSource(id, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates: [
-                [a.lng, a.lat],
-                [b.lng, b.lat]
-              ]
-            }
-          }
-        });
-
-        map.addLayer({
-          id,
-          type: "line",
-          source: id,
-          paint: {
-            "line-color": "cyan",
-            "line-width": 2
-          }
-        });
-      }
-    }
-
   }
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
       
-      <div style={{ width: 250, padding: 10 }}>
+      <div style={{ width: 250, padding: 12 }}>
         <h3>RF Planner</h3>
 
         <button onClick={() => setMode("gateway")}>Gateway</button>
