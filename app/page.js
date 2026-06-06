@@ -19,7 +19,9 @@ console.log("NEW CODE RUNNING ✅"); // ✅ ADD THIS HERE
 const modeRef = useRef(mode);
  
 useEffect(() => {
-  modeRef.current = mode;
+  if (mapRef.current) {
+    mapRef.current.currentMode = mode;
+  }
 }, [mode]);
 
 useEffect(() => {
@@ -34,10 +36,11 @@ useEffect(() => {
     });
 
     mapRef.current = map;
-
+map.currentMode = mode;
    
 map.on("click", (e) => {
-  addNode(e.lngLat.lng, e.lngLat.lat, modeRef.current);
+  const currentMode = map.currentMode || "sra";
+  addNode(e.lngLat.lng, e.lngLat.lat, currentMode);
 });
 
 
