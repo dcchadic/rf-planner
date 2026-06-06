@@ -26,7 +26,6 @@ const linksRef = useRef({});
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
 const [editType,setEditType] = useState("");
-const [useFresnel, setUseFresnel] = useState(true);
 
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -84,50 +83,7 @@ const [useFresnel, setUseFresnel] = useState(true);
     }
   }
 
-  // ---------- FRESNEL ----------
-  async function getFresnel(a,b){
-
-    const key = `${a.lng}-${a.lat}-${b.lng}-${b.lat}`;
-    if(fresnelCache[key]) return fresnelCache[key];
-
-    const elevA = await getElevation(a.lng,a.lat);
-    const elevB = await getElevation(b.lng,b.lat);
-
-    const hA = elevA*3.28 + a.height;
-    const hB = elevB*3.28 + b.height;
-
-    const total = distance(a,b)*5280;
-
-    let worst = 0;
-
-    for(let i=1;i<6;i++){
-
-      const t=i/15;
-
-      const lng = a.lng+(b.lng-a.lng)*t;
-      const lat = a.lat+(b.lat-a.lat)*t;
-
-      const terrain = (await getElevation(lng,lat))*3.28;
-      const los = hA+(hB-hA)*t;
-
-      const d1=total*t;
-      const d2=total*(1-t);
-
-      const fresnel = 17.32*Math.sqrt((d1*d2)/(0.9*total));
-
-      const clear = los-terrain;
-      const blocked = Math.max(0,fresnel-clear);
-      const pct = (blocked/fresnel)*100;
-
-      if(pct>worst) worst=pct;
-    }
-
-    const result = { blocked: worst, clear: 100-worst };
-    fresnelCache[key] = result;
-
-    return result;
-  }
-
+ 
   // ---------- ADD NODE ----------
   function addNode(map,lng,lat,type,name=null){
 
@@ -311,7 +267,7 @@ if (!path || path.length < 2) continue;
         const p1 = path[j];
         const p2 = path[j+1];
 
-        const f = await getFresnel(p1,p2);
+        const f = { clear: 100 };
         const d = distance(p1,p2);
 
         const lineId = `line-${i}-${j}`;
@@ -343,11 +299,7 @@ map.addSource(lineId,{
           type:"line",
           source:lineId,
           paint:{
-            "line-color":
-              f.clear<20?"purple":
-              f.clear<40?"red":
-              f.clear>80?"green":
-              f.clear>60?"yellow":"orange",
+           "line-color": "#00ffff",
             "line-width":3
           }
         });
@@ -554,12 +506,7 @@ return (
       <button onClick={()=>setMode("lra")}>LRA</button>
       <button onClick={()=>setMode("sra")}>SRA</button>
 
-      {/* ✅ Fresnel toggle */}
-      <button onClick={() => setUseFresnel(!useFresnel)}>
-        Fresnel: {useFresnel ? "ON" : "OFF"}
-      </button>
-
-      <hr/>
+           <hr/>
 
       {/* ✅ Import text */}
       <textarea
