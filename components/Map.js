@@ -531,7 +531,8 @@ function autoOptimizeNetwork(){
     addNode(map, r.Longitude, r.Latitude, "sra", r.Name);
 
     count++;
-  }
+
+}
 
   // ✅ SINGLE MODEM CHECK
   placedNodes.forEach(node => {
@@ -603,6 +604,26 @@ function autoOptimizeNetwork(){
   setShowOptimizePrompt(false);
 }
 
+// ✅ ✅ ADD IT RIGHT HERE
+function saveNetwork(){
+
+  const data = nodesRef.current;
+
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    { type: "application/json" }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rf-network.json";
+  a.click();
+
+  URL.revokeObjectURL(url);
+
+  }
 
  
 return (
@@ -721,7 +742,7 @@ return (
       <hr/>
 
       {/* ✅ Save network */}
-      <button onClick={saveNetwork}>Save</button>
+      {/* <button onClick={saveNetwork}>Save</button> */}
 
       <hr/>
 
