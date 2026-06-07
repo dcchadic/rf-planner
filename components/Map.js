@@ -540,14 +540,18 @@ function autoOptimizeNetwork(){
 
 let type = "sra";
 
-// ✅ NEW LOGIC STARTS HERE
 
 // Check if this node can connect to ANY node that reaches a gateway
 
 let hasPathToGateway = false;
 
 for (const existing of nodesRef.current) {
-  const d = distance(...);
+  
+const d = distance(
+  { lng: r.Longitude, lat: r.Latitude },
+  { lng: existing.lng, lat: existing.lat }
+);
+
 
   if (d > 5) continue;
 
