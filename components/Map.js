@@ -429,6 +429,7 @@ async function analyzeNetwork(){
 
     let worstClear = 100;
     let bestSignal = -999;
+ let maxNeededHeight = 0; 
 
     for(const b of nodesRef.current){
 
@@ -448,9 +449,14 @@ if(!los.clear && (a.type === "lra" || a.type === "gateway")){
       const signal = calcPower(d);
 
       // ✅ Track worst Fresnel
-      if(!los.clear){
+     
+if(!los.clear){
         worstClear = 0;
+        if(los.requiredHeight > maxNeededHeight){
+          maxNeededHeight = los.requiredHeight;
+        }
       }
+
 
       // ✅ Track best signal
       if(signal > bestSignal){
@@ -461,7 +467,7 @@ if(!los.clear && (a.type === "lra" || a.type === "gateway")){
     const terrainBlocked = worstClear === 0;
 
     // ✅ Height calculation (your existing logic)
-    const neededBoost = terrainBlocked ? 10 : 0;
+     const neededBoost = terrainBlocked ? Math.ceil(maxNeededHeight) : 0;
     let targetHeight = a.height + neededBoost;
 
     // ✅ UPDATED MAX RULES (your requirement)
@@ -476,6 +482,8 @@ if(!los.clear && (a.type === "lra" || a.type === "gateway")){
       targetHeight = maxHeight;
       capped = true;
     }
+
+a.recommendedHeight = targetHeight;
 
     // ✅ SIGNAL CONDITION
     const weakSignal = bestSignal < -90;
@@ -869,7 +877,8 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 <div>
   <div style={{fontWeight:"bold", marginBottom:6}}>Nodes</div>
 
-  {nodesRef.current.map((n, i) => (
+ 
+ {nodesRef.current.map((n, i) => (
     <div key={i} style={{marginBottom:4}}>
       
 <span style={{
@@ -877,11 +886,12 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     n.type==="gateway" ? "blue" :
     n.type==="lra" ? "orange" : "green"
 }}>
-  {n.name} ({n.type.toUpperCase()})
+  {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
 </span>
 
     </div>
   ))}
+
 </div>
 
 <hr/>
