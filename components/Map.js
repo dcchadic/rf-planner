@@ -532,19 +532,58 @@ function autoOptimizeNetwork(){
   let count = 0;
   const placedNodes = [];
 
-  for(let i = 1; i < importedData.length; i++){
+ for(let i = 1; i < importedData.length; i++){
 
-    if(count >= 25) break;
+  if(count >= 25) break;
 
-    const r = importedData[i];
+  const r = importedData[i];
 
-    placedNodes.push(r);
+  let type = "sra";
 
-    addNode(map, r.Longitude, r.Latitude, "sra", r.Name);
+  // ✅ Check if this node can reach ANY gateway
+  let canReachGateway = false;
 
-    count++;
+  for(const existing of nodesRef.current){
+    if(existing.type !== "gateway") continue;
 
+    const d = distance(
+      { lng: r.Longitude, lat: r.Latitude },
+      { lng: existing.lng, lat: existing.lat }
+    );
+
+    if(d <= 3){  // SRA range
+      canReachGateway = true;
+      break;
+    }
+  }
+
+  // ✅ If NOT reachable → try LRA placement
+  if(!canReachGateway){
+
+    for(const g of nodesRef.current){
+
+      if(g.type !== "gateway") continue;
+
+      const dToGateway = distance(
+        { lng: r.Longitude, lat: r.Latitude },
+        { lng: g.lng, lat: g.lat }
+      );
+
+      // ✅ If within LRA range → promote to LRA
+      if(dToGateway <= 8){
+        type = "lra";
+        break;
+      }
+    }
+  }
+
+  placedNodes.push(r);
+
+  addNode(map, r.Longitude, r.Latitude, type, r.Name);
+
+  count++;
 }
+
 
   // ✅ SINGLE MODEM CHECK
   placedNodes.forEach(node => {
