@@ -894,11 +894,11 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       ))}
 
     </div>
+  </div>          {/* ✅ ADD THIS LINE — closes the sidebar */}
 
-    {/* ✅ MAP */}
+    {/* MAP */}
     <div ref={containerRef} style={{flex:1}}/>
 
-  </div> {
+  </div>
 );
 }
-
