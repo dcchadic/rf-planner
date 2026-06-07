@@ -512,73 +512,85 @@ function autoOptimizeNetwork(){
   const recs = [];
 
   // ✅ Primary gateway
-  const gateway = importedData[0];
+  // ✅ FIND CENTER POINT
+let avgLat = 0;
+let avgLng = 0;
 
-  addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
+for (const r of importedData) {
+  avgLat += r.Latitude;
+  avgLng += r.Longitude;
+}
+
+avgLat /= importedData.length;
+avgLng /= importedData.length;
+
+// ✅ FIND NODE CLOSEST TO CENTER → BEST GATEWAY
+let gateway = importedData[0];
+let bestDist = Infinity;
+
+for (const r of importedData) {
+  const d = distance(
+    { lng: avgLng, lat: avgLat },
+    { lng: r.Longitude, lat: r.Latitude }
+  );
+
+  if (d < bestDist) {
+    bestDist = d;
+    gateway = r;
+  }
+}
+
+// ✅ PLACE GATEWAY
+addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
 
   let count = 0;
   const placedNodes = [];
 
- for(let i = 1; i < importedData.length; i++){
+ for (let i = 1; i < importedData.length; i++) {
 
-  if(count >= 25) break;
+  if (count >= 25) break;
 
- const r = importedData[i];
+  const r = importedData[i];
 
-let type = "sra";
+  // ✅ skip gateway node
+  if (r === gateway) continue;
 
+  placedNodes.push(r);
 
-// Check if this node can connect to ANY node that reaches a gateway
+  addNode(map, r.Longitude, r.Latitude, "sra", r.Name);
 
-let hasPathToGateway = false;
-
-for (const existing of nodesRef.current) {
-  
-const d = distance(
-  { lng: r.Longitude, lat: r.Latitude },
-  { lng: existing.lng, lat: existing.lat }
-);
-
-
-  if (d > .75) continue;
-
-// ✅ valid if connects to gateway OR chain
-
-const reachesGateway =
-  existing.type === "gateway" ||
-  existing.type === "lra";
-
-
-  if (reachesGateway) {
-    hasPathToGateway = true;
-    break;
-  }
+  count++;
 }
+// ✅ Build initial connections
+await computeLinks();
+// ✅ UPGRADE ONLY NODES THAT FAIL TO CONNECT
+for (const node of nodesRef.current) {
 
-// ✅ If no valid path → promote to LRA
-if (!hasPathToGateway) {
-  for(const g of nodesRef.current){
+  if (node.type === "gateway") continue;
 
-    if(g.type !== "gateway") continue;
+  const path = getPath(node);
+  const reachesGateway = path.some(n => n.type === "gateway");
 
-    const dToGateway = distance(
-      { lng: r.Longitude, lat: r.Latitude },
-      { lng: g.lng, lat: g.lat }
-    );
+  if (!reachesGateway) {
 
-    if(dToGateway <= 10){
-      type = "lra";
-      break;
+    for (const g of nodesRef.current) {
+
+      if (g.type !== "gateway") continue;
+
+      const d = distance(node, g);
+
+      // ✅ LRA range
+      if (d <= 3) {
+        node.type = "lra";
+        node.range = 3;
+        break;
+      }
     }
   }
 }
 
-  placedNodes.push(r);
-
-  addNode(map, r.Longitude, r.Latitude, type, r.Name);
-
-  count++;
-}
+// ✅ REBUILD NETWORK AFTER CHANGES
+await computeLinks();
 
 
   // ✅ SINGLE MODEM CHECK
