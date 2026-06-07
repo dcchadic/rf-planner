@@ -63,28 +63,55 @@ const [editType,setEditType] = useState("");
     return 30+5+5-(20*Math.log10(d*1.6+0.01)+20*Math.log10(900)+32.44);
   }
 
-  // ---------- TERRAIN ----------
-  async function getElevation(lng,lat){
+ // ---------- TERRAIN ----------
+async function getElevation(lng, lat){
 
-    const key = `${lng.toFixed(4)},${lat.toFixed(4)}`;
-    if(elevationCache[key]) return elevationCache[key];
+  const key = `${lng.toFixed(4)},${lat.toFixed(4)}`;
+  if(elevationCache[key]) return elevationCache[key];
 
-    try{
-      const res = await fetch(
-       `https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/${lng},${lat}.json?layers=contour&limit=1&access_token=${mapboxgl.accessToken}`
-      );
-      const data = await res.json();
+  try{
+    const res = await fetch(
+      `https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/${lng},${lat}.json?layers=contour&limit=1&access_token=${mapboxgl.accessToken}`
+    );
 
-      const elev = data.features?.[0]?.properties?.ele || 0;
-      elevationCache[key] = elev;
+    const data = await res.json();
 
-      return elev;
+    const elev = data.features?.[0]?.properties?.ele || 0;
+    elevationCache[key] = elev;
 
-    }catch{
-      return 0;
-    }
+    return elev;
+
+  }catch{
+    return 0;
+  }
+}
+
+
+// ✅ LOS FUNCTION (separate!)
+async function checkLOS(p1, p2, h1, h2){
+
+  const elev1 = await getElevation(p1.lng, p1.lat);
+  const elev2 = await getElevation(p2.lng, p2.lat);
+
+  const midLng = (p1.lng + p2.lng)/2;
+  const midLat = (p1.lat + p2.lat)/2;
+
+  const elevMid = await getElevation(midLng, midLat);
+
+  const losLine = ((elev1 + h1) + (elev2 + h2)) / 2;
+
+  if (elevMid > losLine) {
+    return {
+      clear:false,
+      requiredHeight: elevMid - losLine + 5
+    };
   }
 
+  return {
+    clear:true,
+    requiredHeight:0
+  };
+}
  
   // ---------- ADD NODE ----------
   function addNode(map,lng,lat,type,name=null){
@@ -270,7 +297,7 @@ if (!path || path.length < 2) continue;
         const p1 = path[j];
         const p2 = path[j+1];
 
-        const f = { clear: 100 };
+        const los = await checkLOS(p1, p2, p1.height, p2.height);
         const d = distance(p1,p2);
 const signal = calcPower(d);
 
@@ -303,11 +330,13 @@ map.addSource(lineId,{
           type:"line",
           source:lineId,
           paint:{
-           "line-color":
+           
+"line-color":
+!los.clear ? "red" :
 signal > -70 ? "green" :
-      signal > -85 ? "yellow" :
-      signal > -100 ? "orange" :
-      "red",
+signal > -85 ? "yellow" :
+signal > -100 ? "orange" :
+"red",
 
             "line-width":3
           }
@@ -336,7 +365,11 @@ map.addSource(labelId,{
       ]
     },
     properties: {
-     text: `${d.toFixed(2)} mi | ${signal.toFixed(0)} dBm`
+     
+text: los.clear
+  ? `${d.toFixed(2)} mi | ${signal.toFixed(0)} dBm`
+  : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft`
+
     }
   }
 });
@@ -398,12 +431,19 @@ async function analyzeNetwork(){
       const d = distance(a,b);
       if(d > a.range) continue;
 
-      const f = { clear: 100 };
+      const los = await checkLOS(a, b, a.height, b.height);
+
+f(!los.clear && (a.type === "lra" || a.type === "gateway")){
+  recs.push({
+    text: `📡 ${a.name.toUpperCase()}: Increase height by ~${Math.ceil(los.requiredHeight)} ft (terrain)`
+  });
+}
+
       const signal = calcPower(d);
 
       // ✅ Track worst Fresnel
-      if(f.clear < worstClear){
-        worstClear = f.clear;
+      if(!los.clear){
+        worstClear = 0;
       }
 
       // ✅ Track best signal
@@ -412,10 +452,10 @@ async function analyzeNetwork(){
       }
     }
 
-    const terrainBlocked = worstClear < 40;
+    const terrainBlocked = worstClear === 0;
 
     // ✅ Height calculation (your existing logic)
-    const neededBoost = Math.ceil((60 - worstClear) * 0.5);
+    const neededBoost = terrainBlocked ? 10 : 0;
     let targetHeight = a.height + neededBoost;
 
     // ✅ UPDATED MAX RULES (your requirement)
@@ -716,12 +756,28 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 )}
 
     {/* ✅ SIDEBAR */}
-    <div style={{width:300,padding:12}}>
+   <div style={{
+  width:300,
+  display:"flex",
+  flexDirection:"column",
+  height:"100%",
+  borderRight:"1px solid #ccc"
+}}>
 
       {/* ✅ Mode buttons */}
-      <button onClick={()=>setMode("gateway")}>Gateway</button>
-      <button onClick={()=>setMode("lra")}>LRA</button>
-      <button onClick={()=>setMode("sra")}>SRA</button>
+  
+<div style={{padding:12}}>
+  <button onClick={()=>setMode("gateway")}>Gateway</button>
+  <button onClick={()=>setMode("lra")}>LRA</button>
+  <button onClick={()=>setMode("sra")}>SRA</button>
+</div>
+
+
+<div style={{
+  flex:1,
+  overflowY:"auto",
+  padding:12
+}}>
 
            <hr/>
 
