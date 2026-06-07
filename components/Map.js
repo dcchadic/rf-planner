@@ -28,6 +28,7 @@ const [importedData, setImportedData] = useState([]);
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
 const [editType,setEditType] = useState("");
+const [nodeVersion, setNodeVersion] = useState(0);
 
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -403,7 +404,12 @@ map.addLayer({
 
 }
 
-  function redraw(){ draw(); }
+
+function redraw(){
+    setNodeVersion(v => v + 1);
+    draw();
+  }
+
 
  
 // ---------- ANALYSIS ----------
@@ -892,7 +898,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     {/* ✅ MAP */}
     <div ref={containerRef} style={{flex:1}}/>
 
-  </div>
+  </div> {
 );
 }
 
