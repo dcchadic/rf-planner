@@ -413,6 +413,9 @@ function redraw(){
 
 // ✅ SAVE NETWORK — downloads a file to your computer
   function saveNetwork(){
+    const fileName = prompt("Name this network:", "rf-network");
+    if(!fileName) return;
+
     const data = nodesRef.current.map(n => ({
       name: n.name,
       type: n.type,
@@ -426,7 +429,7 @@ function redraw(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "rf-network.json";
+    a.download = fileName + ".json";
     a.click();
     URL.revokeObjectURL(url);
   }
