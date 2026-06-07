@@ -159,6 +159,7 @@ setEditType(node.type);   // ✅ NEW
       redraw();
     };
 
+   node.marker = marker; 
     nodesRef.current.push(node);
     redraw();
   }
@@ -408,6 +409,60 @@ map.addLayer({
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
+  }
+
+// ✅ SAVE NETWORK — downloads a file to your computer
+  function saveNetwork(){
+    const data = nodesRef.current.map(n => ({
+      name: n.name,
+      type: n.type,
+      lat: n.lat,
+      lng: n.lng,
+      height: n.height,
+      range: n.range
+    }));
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "rf-network.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ✅ LOAD NETWORK — opens a saved file
+  function loadNetwork(e){
+    const reader = new FileReader();
+
+    reader.onload = (evt) => {
+      const data = JSON.parse(evt.target.result);
+      const map = mapRef.current;
+
+      // clear old nodes
+      nodesRef.current.forEach(n => {
+        if(n.marker) n.marker.remove();
+      });
+      nodesRef.current = [];
+
+      // place each saved node
+      data.forEach(n => {
+        addNode(map, n.lng, n.lat, n.type, n.name);
+      });
+
+      // center map on loaded network
+      let avgLat = 0;
+      let avgLng = 0;
+      for(const n of data){
+        avgLat += n.lat;
+        avgLng += n.lng;
+      }
+      avgLat /= data.length;
+      avgLng /= data.length;
+      map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+    };
+
+    reader.readAsText(e.target.files[0]);
   }
 
 
@@ -886,8 +941,24 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 
       <hr/>
 
-      {/* ✅ Save network */}
-      {/* <button onClick={saveNetwork}>Save</button> */}
+     {/* ✅ Save & Load network */}
+      <button onClick={saveNetwork} style={{width:"100%", marginBottom:6}}>
+        💾 Save Network
+      </button>
+
+      <label style={{
+        display:"block",
+        width:"100%",
+        marginBottom:6,
+        padding:"4px 8px",
+        background:"#eee",
+        textAlign:"center",
+        cursor:"pointer",
+        border:"1px solid #ccc"
+      }}>
+        📂 Load Network
+        <input type="file" accept=".json" onChange={loadNetwork} style={{display:"none"}}/>
+      </label>
 
       <hr/>
 
