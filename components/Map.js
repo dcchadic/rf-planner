@@ -502,7 +502,7 @@ function uploadExcel(e){
   reader.readAsArrayBuffer(e.target.files[0]);
 }
 
-function autoOptimizeNetwork(){
+async function autoOptimizeNetwork(){
 
   if(!importedData.length) return;
 
