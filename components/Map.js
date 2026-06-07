@@ -543,29 +543,25 @@ let type = "sra";
 // ✅ NEW LOGIC STARTS HERE
 
 // Check if this node can connect to ANY node that reaches a gateway
+
 let hasPathToGateway = false;
 
-for(const existing of nodesRef.current){
+for (const existing of nodesRef.current) {
+  const d = distance(...);
 
-  const d = distance(
-    { lng: r.Longitude, lat: r.Latitude },
-    { lng: existing.lng, lat: existing.lat }
-  );
-
-  if(d > 3) continue; // SRA range
+  if (d > 5) continue;
 
   const path = getPath(existing);
   const reachesGateway = path.some(n => n.type === "gateway");
 
-  if(reachesGateway){
+  if (reachesGateway) {
     hasPathToGateway = true;
     break;
   }
 }
 
 // ✅ If no valid path → promote to LRA
-if(!hasPathToGateway){
-
+if (!hasPathToGateway || i > 3) {
   for(const g of nodesRef.current){
 
     if(g.type !== "gateway") continue;
@@ -575,7 +571,7 @@ if(!hasPathToGateway){
       { lng: g.lng, lat: g.lat }
     );
 
-    if(dToGateway <= 8){
+    if(dToGateway <= 10){
       type = "lra";
       break;
     }
