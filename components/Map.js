@@ -89,20 +89,22 @@ const [editType,setEditType] = useState("");
   // ---------- ADD NODE ----------
   function addNode(map,lng,lat,type,name=null){
 
-    const node={
-      lng,lat,type,
-      height: type==="gateway"?15:type==="lra"?10:5,
-      range: type==="gateway"?5:type==="lra"?3:0.75,
-      name: name || `${type}-${nodesRef.current.length+1}`
-    };
+    
+   const el = document.createElement("div");
+el.style.width = "14px";
+el.style.height = "14px";
+el.style.borderRadius = "50%";
+el.style.background =
+  type==="gateway" ? "blue" :
+  type==="lra" ? "orange" : "green";
 
-    const el=document.createElement("div");
-    el.style.width="14px";
-    el.style.height="14px";
-    el.style.borderRadius="50%";
-    el.style.background=
-      type==="gateway"?"blue":
-      type==="lra"?"orange":"green";
+const node = {
+  lng, lat, type,
+  markerElement: el,   // ✅ NOW it's valid
+  height: type==="gateway"?15:type==="lra"?10:5,
+  range: type==="gateway"?5:type==="lra"?3:0.75,
+  name: name || `${type}-${nodesRef.current.length+1}`
+};
 
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat])
@@ -583,6 +585,10 @@ for (const node of nodesRef.current) {
       if (d <= 3) {
         node.type = "lra";
         node.range = 3;
+if (node.markerElement) {
+  node.markerElement.style.background = "orange";
+}
+
         break;
       }
     }
@@ -795,6 +801,28 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       {/* <button onClick={saveNetwork}>Save</button> */}
 
       <hr/>
+
+<hr/>
+
+<div>
+  <div style={{fontWeight:"bold", marginBottom:6}}>Nodes</div>
+
+  {nodesRef.current.map((n, i) => (
+    <div key={i} style={{marginBottom:4}}>
+      
+<span style={{
+  color:
+    n.type==="gateway" ? "blue" :
+    n.type==="lra" ? "orange" : "green"
+}}>
+  {n.name} ({n.type.toUpperCase()})
+</span>
+
+    </div>
+  ))}
+</div>
+
+<hr/>
 
       {/* ✅ ✅ RECOMMENDATIONS */}
       {recommendations.map((r,i)=>(
