@@ -151,7 +151,7 @@ for (const a of sortedNodes) {
 
   let best = null;
 
-  // ✅ 1. Direct gateway
+  // ✅ 1. Direct connection to gateway
   for (const b of nodesRef.current) {
     if (b.type !== "gateway") continue;
 
@@ -162,29 +162,20 @@ for (const a of sortedNodes) {
     }
   }
 
-  // ✅ 2. Try ANY node that already connects to something
+  // ✅ 2. Connect to SRA or LRA that already has a path
   if (!best) {
     for (const b of nodesRef.current) {
+
       if (b === a) continue;
+      if (b.type !== "sra" && b.type !== "lra") continue;
 
       const d = distance(a, b);
       if (d > a.range) continue;
 
-      // ✅ if b already has a link, it’s part of chain
-      if (linksRef.current[b.name]) {
-        best = b;
-        break;
-      }
-    }
-  }
+      const next = linksRef.current[b.name];
 
-  // ✅ 3. Prefer LRA if available (strong relay)
-  if (!best) {
-    for (const b of nodesRef.current) {
-      if (b.type !== "lra") continue;
-
-      const d = distance(a, b);
-      if (d <= a.range) {
+      // ✅ if b connects to gateway OR another valid node
+      if (next && (next.type === "gateway" || next.type === "lra" || linksRef.current[next.name])) {
         best = b;
         break;
       }
@@ -195,7 +186,6 @@ for (const a of sortedNodes) {
     linksRef.current[a.name] = best;
   }
 }
-
 
 }
 
@@ -550,10 +540,14 @@ const d = distance(
 );
 
 
-  if (d > 5) continue;
+  if (d > .75) continue;
 
-  const path = getPath(existing);
-  const reachesGateway = path.some(n => n.type === "gateway");
+// ✅ valid if connects to gateway OR chain
+
+const reachesGateway =
+  existing.type === "gateway" ||
+  existing.type === "lra";
+
 
   if (reachesGateway) {
     hasPathToGateway = true;
@@ -562,7 +556,7 @@ const d = distance(
 }
 
 // ✅ If no valid path → promote to LRA
-if (!hasPathToGateway || i > 3) {
+if (!hasPathToGateway) {
   for(const g of nodesRef.current){
 
     if(g.type !== "gateway") continue;
