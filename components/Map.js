@@ -536,46 +536,51 @@ function autoOptimizeNetwork(){
 
   if(count >= 25) break;
 
-  const r = importedData[i];
+ const r = importedData[i];
 
-  let type = "sra";
+let type = "sra";
 
-  // ✅ Check if this node can reach ANY gateway
-  let canReachGateway = false;
+// ✅ NEW LOGIC STARTS HERE
 
-  for(const existing of nodesRef.current){
-    if(existing.type !== "gateway") continue;
+// Check if this node can connect to ANY node that reaches a gateway
+let hasPathToGateway = false;
 
-    const d = distance(
+for(const existing of nodesRef.current){
+
+  const d = distance(
+    { lng: r.Longitude, lat: r.Latitude },
+    { lng: existing.lng, lat: existing.lat }
+  );
+
+  if(d > 3) continue; // SRA range
+
+  const path = getPath(existing);
+  const reachesGateway = path.some(n => n.type === "gateway");
+
+  if(reachesGateway){
+    hasPathToGateway = true;
+    break;
+  }
+}
+
+// ✅ If no valid path → promote to LRA
+if(!hasPathToGateway){
+
+  for(const g of nodesRef.current){
+
+    if(g.type !== "gateway") continue;
+
+    const dToGateway = distance(
       { lng: r.Longitude, lat: r.Latitude },
-      { lng: existing.lng, lat: existing.lat }
+      { lng: g.lng, lat: g.lat }
     );
 
-    if(d <= 3){  // SRA range
-      canReachGateway = true;
+    if(dToGateway <= 8){
+      type = "lra";
       break;
     }
   }
-
-  // ✅ If NOT reachable → try LRA placement
-  if(!canReachGateway){
-
-    for(const g of nodesRef.current){
-
-      if(g.type !== "gateway") continue;
-
-      const dToGateway = distance(
-        { lng: r.Longitude, lat: r.Latitude },
-        { lng: g.lng, lat: g.lat }
-      );
-
-      // ✅ If within LRA range → promote to LRA
-      if(dToGateway <= 8){
-        type = "lra";
-        break;
-      }
-    }
-  }
+}
 
   placedNodes.push(r);
 
