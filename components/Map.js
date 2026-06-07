@@ -433,7 +433,7 @@ async function analyzeNetwork(){
 
       const los = await checkLOS(a, b, a.height, b.height);
 
-f(!los.clear && (a.type === "lra" || a.type === "gateway")){
+if(!los.clear && (a.type === "lra" || a.type === "gateway")){
   recs.push({
     text: `📡 ${a.name.toUpperCase()}: Increase height by ~${Math.ceil(los.requiredHeight)} ft (terrain)`
   });
