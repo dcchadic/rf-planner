@@ -580,6 +580,8 @@ for (const r of importedData) {
 avgLat /= importedData.length;
 avgLng /= importedData.length;
 
+map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+
 // ✅ FIND NODE CLOSEST TO CENTER → BEST GATEWAY
 let gateway = importedData[0];
 let bestDist = Infinity;
@@ -763,6 +765,17 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       importedData.forEach(r=>{
         addNode(mapRef.current, r.Longitude, r.Latitude, "sra", r.Name);
       });
+
+      // ✅ Center map on uploaded coordinates
+      let avgLat = 0;
+      let avgLng = 0;
+      for(const r of importedData){
+        avgLat += r.Latitude;
+        avgLng += r.Longitude;
+      }
+      avgLat /= importedData.length;
+      avgLng /= importedData.length;
+      mapRef.current.flyTo({ center: [avgLng, avgLat], zoom: 13 });
     }}>
       No
     </button>
@@ -835,28 +848,34 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 
           {/* ✅ Save */}
           <button
-            onClick={()=>{
-              if(!selectedNode) return;
+           onClick={()=>{
+  if(!selectedNode) return;
 
-              selectedNode.name = editName;
-              selectedNode.type = editType;
+  selectedNode.name = editName;
+  selectedNode.type = editType;
 
-              // ✅ update height + range
-              if(editType === "gateway"){
-                selectedNode.height = 15;
-                selectedNode.range = 5;
-              } 
-              else if(editType === "lra"){
-                selectedNode.height = 10;
-                selectedNode.range = 3;
-              } 
-              else {
-                selectedNode.height = 5;
-                selectedNode.range = 0.75;
-              }
+  if(editType === "gateway"){
+    selectedNode.height = 15;
+    selectedNode.range = 5;
+  } 
+  else if(editType === "lra"){
+    selectedNode.height = 10;
+    selectedNode.range = 3;
+  } 
+  else {
+    selectedNode.height = 5;
+    selectedNode.range = 0.75;
+  }
 
-              redraw();
-            }}
+  // ✅ update marker color
+  selectedNode.markerElement.style.background =
+    editType === "gateway" ? "blue" :
+    editType === "lra" ? "orange" : "green";
+
+  redraw();
+}}
+
+
             style={{width:"100%", marginBottom:6}}
           >
             Save Changes
