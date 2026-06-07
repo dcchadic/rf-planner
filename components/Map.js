@@ -144,61 +144,58 @@ const sortedNodes = [...nodesRef.current].sort((x,y)=>{
   return order[x.type] - order[y.type];
 });
 
-for(const a of sortedNodes){
 
+for (const a of sortedNodes) {
 
-    if(a.type === "gateway") continue;
+  if (a.type === "gateway") continue;
 
-   let best = null;
+  let best = null;
 
-// ✅ 1. Try direct gateway
-for(const b of nodesRef.current){
-  if(b.type !== "gateway") continue;
+  // ✅ 1. Direct gateway
+  for (const b of nodesRef.current) {
+    if (b.type !== "gateway") continue;
 
-  const d = distance(a,b);
-  if(d <= a.range){
-    best = b;
-    break;
-  }
-}
-
-// ✅ 2. Try SRA with path to gateway
-if(!best){
-  for(const b of nodesRef.current){
-    if(b.type !== "sra") continue;
-
-    const d = distance(a,b);
-    if(d > a.range) continue;
-
-    const next = linksRef.current[b.name];
-    const reachesGateway = next && next.type === "gateway";
-
-    // ✅ THIS PART IS MISSING
-    if(reachesGateway){
+    const d = distance(a, b);
+    if (d <= a.range) {
       best = b;
       break;
     }
   }
-}
-// ✅ 3. Try LRA
-if(!best){
-  for(const b of nodesRef.current){
-    if(b.type !== "lra") continue;
 
-    const d = distance(a,b);
-    if(d <= a.range){
-      best = b;
-      break;
+  // ✅ 2. Try ANY node that already connects to something
+  if (!best) {
+    for (const b of nodesRef.current) {
+      if (b === a) continue;
+
+      const d = distance(a, b);
+      if (d > a.range) continue;
+
+      // ✅ if b already has a link, it’s part of chain
+      if (linksRef.current[b.name]) {
+        best = b;
+        break;
+      }
     }
+  }
+
+  // ✅ 3. Prefer LRA if available (strong relay)
+  if (!best) {
+    for (const b of nodesRef.current) {
+      if (b.type !== "lra") continue;
+
+      const d = distance(a, b);
+      if (d <= a.range) {
+        best = b;
+        break;
+      }
+    }
+  }
+
+  if (best) {
+    linksRef.current[a.name] = best;
   }
 }
 
-// ✅ assign result
-if(best){
-  linksRef.current[a.name] = best;
-}
-
-}
 
 }
 
@@ -616,74 +613,65 @@ if (!hasPathToGateway || i > 3) {
 
   });
 
-  // ✅ MULTI-GATEWAY LOGIC
-  let clusterCandidates = [];
+ // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
+let needsGateway = false;
 
-  placedNodes.forEach(node => {
+for (const node of nodesRef.current) {
 
-    let localCount = 0;
+  if (node.type === "gateway") continue;
 
-    for(const other of placedNodes){
+  const path = getPath(node);
+  const reachesGateway = path.some(n => n.type === "gateway");
 
-      const d = distance(
-        { lng: node.Longitude, lat: node.Latitude },
-        { lng: other.Longitude, lat: other.Latitude }
-      );
-
-      if(d < 2){
-        localCount++;
-      }
-    }
-
-    if(localCount >= 6){
-      clusterCandidates.push(node);
-    }
-
-  });
-
-  // ✅ Add second gateway if valid
-  if(clusterCandidates.length > 0){
-
-    const g = clusterCandidates[0];
-
-    addNode(map, g.Longitude, g.Latitude, "gateway", "GATEWAY-2");
-
-    recs.push({
-      text: `📡 Secondary Gateway added (≥6 nodes)`
-    });
+  if (!reachesGateway) {
+    needsGateway = true;
+    break;
   }
-
-  draw();
-
-  setRecommendations(prev => [...prev, ...recs]);
-
-  setShowOptimizePrompt(false);
 }
 
-// ✅ ✅ ADD IT RIGHT HERE
-function saveNetwork(){
+// ✅ ONLY add new gateway if something truly cannot connect
+if (needsGateway) {
 
-  const data = nodesRef.current;
+  let candidate = null;
 
-  const blob = new Blob(
-    [JSON.stringify(data, null, 2)],
-    { type: "application/json" }
-  );
+  for (const node of nodesRef.current) {
 
-  const url = URL.createObjectURL(blob);
+    if (node.type === "gateway") continue;
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "rf-network.json";
-  a.click();
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
 
-  URL.revokeObjectURL(url);
-
+    if (!reachesGateway) {
+      candidate = node;
+      break;
+    }
   }
 
- 
-return (
-  <div style={{display:"flex",height:"100vh"}}>
+  // ✅ OUTSIDE the loop (this is important)
+  if (candidate) {
+    addNode(
+      map,
+      candidate.lng,
+      candidate.lat,
+      "gateway",
+      "GATEWAY-2"
+    );
+
+    recs.push({
+      text: `📡 Secondary Gateway added (needed for connectivity)`
+    });
+  }
+}
+
+// ✅ ✅ NOW FINISH THE FUNCTION
+draw();
+
+setRecommendations(prev => [...prev, ...recs]);
+setShowOptimizePrompt(false);
+
+} // ✅ closes autoOptimizeNetwork
+
+return (  <div style={{display:"flex",height:"100vh"}}>
 
 {showOptimizePrompt && (
   <div style={{
