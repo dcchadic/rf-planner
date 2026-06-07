@@ -138,53 +138,65 @@ setEditType(node.type);   // ✅ NEW
 
   linksRef.current = {};
 
-  for(const a of nodesRef.current){
+ // ✅ process in order: gateway → LRA → SRA
+const sortedNodes = [...nodesRef.current].sort((x,y)=>{
+  const order = {gateway:0, lra:1, sra:2};
+  return order[x.type] - order[y.type];
+});
+
+for(const a of sortedNodes){
+
 
     if(a.type === "gateway") continue;
 
-    let best = null;
-    let bestScore = -999;
+   let best = null;
 
-    for(const b of nodesRef.current){
+// ✅ 1. Try direct gateway
+for(const b of nodesRef.current){
+  if(b.type !== "gateway") continue;
 
-      if(a === b) continue;
+  const d = distance(a,b);
+  if(d <= a.range){
+    best = b;
+    break;
+  }
+}
 
-      const d = distance(a,b);
-      if(d > a.range) continue;
+// ✅ 2. Try SRA with path to gateway
+if(!best){
+  for(const b of nodesRef.current){
+    if(b.type !== "sra") continue;
 
-      const p = calcPower(d);
-     const f = { clear: 100 };
+    const d = distance(a,b);
+    if(d > a.range) continue;
 
-      // ✅ Allow ALL links, but penalize bad ones
-      let penalty = 0;
+    const next = linksRef.current[b.name];
+    const reachesGateway = next && next.type === "gateway";
 
-      if(f.clear < 40){
-        penalty = -80; // discourage but don't block
-      }
-
-      // ✅ Small extra penalty for very weak
-      if(f.clear < 20){
-        penalty -= 50;
-      }
-
-      let boost = 0;
-
-      if(a.type === "sra" && b.type === "gateway") boost = 50;
-      if(a.type === "sra" && b.type === "lra") boost = 25;
-      if(a.type === "lra" && b.type === "gateway") boost = 40;
-
-      const score = p + (f.clear * 1.2) + boost + penalty;
-
-      if(score > bestScore){
-        best = b;
-        bestScore = score;
-      }
+    // ✅ THIS PART IS MISSING
+    if(reachesGateway){
+      best = b;
+      break;
     }
+  }
+}
+// ✅ 3. Try LRA
+if(!best){
+  for(const b of nodesRef.current){
+    if(b.type !== "lra") continue;
 
-    // ✅ ALWAYS assign if something found
-    if(best){
-      linksRef.current[a.name] = best;
+    const d = distance(a,b);
+    if(d <= a.range){
+      best = b;
+      break;
     }
+  }
+}
+
+// ✅ assign result
+if(best){
+  linksRef.current[a.name] = best;
+}
 
 }
 
