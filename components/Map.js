@@ -647,6 +647,150 @@ function uploadExcel(e){
   reader.readAsArrayBuffer(e.target.files[0]);
 }
 
+async function optimizeExisting(){
+
+  const map = mapRef.current;
+  if(!nodesRef.current.length) return;
+
+  const recs = [];
+
+  // ✅ Check if there's already a gateway
+  let hasGateway = nodesRef.current.some(n => n.type === "gateway");
+
+  // ✅ If no gateway, find the best one (closest to center)
+  if(!hasGateway){
+
+    let avgLat = 0;
+    let avgLng = 0;
+
+    for(const n of nodesRef.current){
+      avgLat += n.lat;
+      avgLng += n.lng;
+    }
+
+    avgLat /= nodesRef.current.length;
+    avgLng /= nodesRef.current.length;
+
+    let bestNode = nodesRef.current[0];
+    let bestDist = Infinity;
+
+    for(const n of nodesRef.current){
+      const d = distance(n, { lng: avgLng, lat: avgLat });
+      if(d < bestDist){
+        bestDist = d;
+        bestNode = n;
+      }
+    }
+
+    bestNode.type = "gateway";
+    bestNode.height = 15;
+    bestNode.range = 5;
+    if(bestNode.markerElement){
+      bestNode.markerElement.style.background = "blue";
+    }
+
+    recs.push({
+      text: `📡 ${bestNode.name.toUpperCase()} assigned as Gateway (network center)`
+    });
+  }
+
+  // ✅ Reset all non-gateway nodes to SRA first
+  for(const node of nodesRef.current){
+    if(node.type === "gateway") continue;
+
+    node.type = "sra";
+    node.height = 5;
+    node.range = 0.75;
+    if(node.markerElement){
+      node.markerElement.style.background = "green";
+    }
+  }
+
+  // ✅ Build initial connections
+  await computeLinks();
+
+  // ✅ Upgrade disconnected nodes to LRA if within range
+  for(const node of nodesRef.current){
+
+    if(node.type === "gateway") continue;
+
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
+
+    if(!reachesGateway){
+
+      for(const g of nodesRef.current){
+
+        if(g.type !== "gateway") continue;
+
+        const d = distance(node, g);
+
+        if(d <= 3){
+          node.type = "lra";
+          node.height = 10;
+          node.range = 3;
+          if(node.markerElement){
+            node.markerElement.style.background = "orange";
+          }
+
+          recs.push({
+            text: `⬆️ ${node.name.toUpperCase()} upgraded to LRA (needed for connectivity)`
+          });
+
+          break;
+        }
+      }
+    }
+  }
+
+  // ✅ Rebuild after upgrades
+  await computeLinks();
+
+  // ✅ Check if anything still can't connect
+  for(const node of nodesRef.current){
+
+    if(node.type === "gateway") continue;
+
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
+
+    if(!reachesGateway){
+      recs.push({
+        text: `⚠️ ${node.name.toUpperCase()}: Cannot reach gateway — consider repositioning`
+      });
+    }
+  }
+
+ // ✅ Single Modem check
+  for(const node of nodesRef.current){
+
+    if(node.type === "gateway") continue;
+
+    let canConnect = false;
+
+    for(const b of nodesRef.current){
+      if(b === node) continue;
+
+      const d = distance(node, b);
+
+      if(d < 1.5){
+        canConnect = true;
+        break;
+      }
+    }
+
+    if(!canConnect){
+      recs.push({
+        text: `📶 ${node.name.toUpperCase()}: Add Single Modem`
+      });
+    }
+  }
+
+  // ✅ Redraw and show results
+  draw();
+  setRecommendations(prev => [...prev, ...recs]);
+}
+
 async function autoOptimizeNetwork(){
 
   if(!importedData.length) return;
@@ -886,8 +1030,10 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   <button onClick={()=>setMode("gateway")}>Gateway</button>
   <button onClick={()=>setMode("lra")}>LRA</button>
   <button onClick={()=>setMode("sra")}>SRA</button>
+  <button onClick={optimizeExisting} style={{marginTop:6, width:"100%", background:"#4CAF50", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
+    ⚡ Auto-Optimize
+  </button>
 </div>
-
 
 <div style={{
   flex:1,
