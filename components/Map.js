@@ -594,6 +594,34 @@ a.recommendedHeight = targetHeight;
 
 } 
 
+function importText(){
+    if(!inputCoords.trim()) return;
+
+    const lines = inputCoords.trim().split("\n");
+
+    for(const line of lines){
+      const parts = line.split(",");
+      if(parts.length < 3) continue;
+
+      const name = parts[0].trim();
+      const lat = parseFloat(parts[1].trim());
+      const lng = parseFloat(parts[2].trim());
+
+      if(isNaN(lat) || isNaN(lng)) continue;
+
+      addNode(mapRef.current, lng, lat, modeRef.current, name);
+    }
+
+    // center map on first coordinate
+    const first = inputCoords.trim().split("\n")[0].split(",");
+    const lat = parseFloat(first[1]);
+    const lng = parseFloat(first[2]);
+    if(!isNaN(lat) && !isNaN(lng)){
+      mapRef.current.flyTo({ center: [lng, lat], zoom: 13 });
+    }
+
+    setInputCoords("");
+  }
 
 function uploadExcel(e){
 
@@ -874,7 +902,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
         style={{width:"100%",height:80}}
       />
 
-    {/* <button onClick={importText}>Import</button> */}
+    <button onClick={importText} style={{width:"100%", marginBottom:6}}>📍 Import Coordinates</button>
       <input type="file" onChange={uploadExcel}/>
 
       <hr/>
