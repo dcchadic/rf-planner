@@ -129,7 +129,7 @@ el.style.background =
 const node = {
   lng, lat, type,
   markerElement: el,   // ✅ NOW it's valid
-  height: type==="gateway"?15:type==="lra"?10:10,
+  height: type==="gateway"?15:type==="lra"?10:5,
   range: type==="gateway"?5:type==="lra"?3:0.75,
   name: name || `${type}-${nodesRef.current.length+1}`
 };
@@ -533,7 +533,7 @@ if(!los.clear){
 
     // ✅ UPDATED MAX RULES (your requirement)
     let maxHeight =
-      a.type === "sra" ? 10 :
+      a.type === "sra" ? 5 :
       a.type === "lra" ? 30 :
       a.type === "gateway" ? 30 : 999;
 
@@ -563,7 +563,7 @@ a.recommendedHeight = targetHeight;
         if(a.type === "sra"){
 
           recs.push({
-            text: `⬆️ ${a.name.toUpperCase()}: Max height reached (10 ft). Upgrade to LRA (${bestSignal.toFixed(0)} dBm)`
+            text: `⬆️ ${a.name.toUpperCase()}: Max height reached (5 ft). Upgrade to LRA (${bestSignal.toFixed(0)} dBm)`
           });
 
         } else {
@@ -1149,7 +1149,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     selectedNode.range = 3;
   } 
   else {
-    selectedNode.height = 10;
+    selectedNode.height = 5;
     selectedNode.range = 0.75;
   }
 
@@ -1207,7 +1207,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     n.type==="gateway" ? "blue" :
     n.type==="lra" ? "orange" : "green"
 }}>
-  {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft{n.type === "sra" ? " *Bingfu" : ""}
+  {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
 </span>
 
     </div>
