@@ -164,63 +164,66 @@ setEditType(node.type);   // ✅ NEW
     redraw();
   }
 
-  // ---------- ROUTING ----------
- async function computeLinks(){
+ // ---------- ROUTING ----------
+async function computeLinks(){
 
   linksRef.current = {};
 
- // ✅ process in order: gateway → LRA → SRA
-const sortedNodes = [...nodesRef.current].sort((x,y)=>{
-  const order = {gateway:0, lra:1, sra:2};
-  return order[x.type] - order[y.type];
-});
+  const sortedNodes = [...nodesRef.current].sort((x,y)=>{
+    const order = {gateway:0, lra:1, sra:2};
+    return order[x.type] - order[y.type];
+  });
 
+  for (const a of sortedNodes) {
 
-for (const a of sortedNodes) {
+    if (a.type === "gateway") continue;
 
-  if (a.type === "gateway") continue;
+    let clearGateway = null;
+    let clearMesh = null;
+    let blockedGateway = null;
+    let blockedMesh = null;
 
-  let best = null;
-
-  // ✅ 1. Direct connection to gateway
-  for (const b of nodesRef.current) {
-    if (b.type !== "gateway") continue;
-
-    const d = distance(a, b);
-    if (d <= a.range) {
-      best = b;
-      break;
-    }
-  }
-
-  // ✅ 2. Connect to SRA or LRA that already has a path
-  if (!best) {
     for (const b of nodesRef.current) {
 
       if (b === a) continue;
-      if (b.type !== "sra" && b.type !== "lra") continue;
 
       const d = distance(a, b);
       if (d > a.range) continue;
 
-      const next = linksRef.current[b.name];
+      const isGateway = b.type === "gateway";
 
-      // ✅ if b connects to gateway OR another valid node
-      if (next && (next.type === "gateway" || next.type === "lra" || linksRef.current[next.name])) {
-        best = b;
-        break;
+      let hasMeshPath = false;
+
+      if (!isGateway) {
+        if (b.type !== "sra" && b.type !== "lra") continue;
+
+        const next = linksRef.current[b.name];
+        if (next && (next.type === "gateway" || next.type === "lra" || linksRef.current[next.name])) {
+          hasMeshPath = true;
+        }
       }
+
+      if (!isGateway && !hasMeshPath) continue;
+
+      const los = await checkLOS(a, b, a.height, b.height);
+
+      if (isGateway && los.clear && !clearGateway) clearGateway = b;
+      else if (isGateway && !los.clear && !blockedGateway) blockedGateway = b;
+      else if (!isGateway && los.clear && !clearMesh) clearMesh = b;
+      else if (!isGateway && !los.clear && !blockedMesh) blockedMesh = b;
+
+      if (clearGateway) break;
+    }
+
+    const best = clearGateway || clearMesh || blockedGateway || blockedMesh || null;
+
+    if (best) {
+      linksRef.current[a.name] = best;
     }
   }
-
-  if (best) {
-    linksRef.current[a.name] = best;
-  }
 }
 
-}
-
-  function getPath(start){
+ function getPath(start){
 
     const path=[start];
     let current=start;
