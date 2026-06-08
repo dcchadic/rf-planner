@@ -699,7 +699,7 @@ async function optimizeExisting(){
     if(node.type === "gateway") continue;
 
     node.type = "sra";
-    node.height = 5;
+    node.height = 10;
     node.range = 0.75;
     if(node.markerElement){
       node.markerElement.style.background = "green";
@@ -709,38 +709,68 @@ async function optimizeExisting(){
   // ✅ Build initial connections
   await computeLinks();
 
-  // ✅ Upgrade disconnected nodes to LRA if within range
-  for(const node of nodesRef.current){
+ // ✅ Upgrade ONE node at a time to minimize LRA usage
+  for(let pass = 0; pass < 10; pass++){
 
-    if(node.type === "gateway") continue;
+    let upgraded = false;
 
-    const path = getPath(node);
-    const reachesGateway = path.some(n => n.type === "gateway");
+    // find disconnected nodes
+    let disconnected = [];
+    for(const node of nodesRef.current){
+      if(node.type === "gateway") continue;
+      const path = getPath(node);
+      const reachesGateway = path.some(n => n.type === "gateway");
+      if(!reachesGateway) disconnected.push(node);
+    }
 
-    if(!reachesGateway){
+    if(disconnected.length === 0) break;
 
+    // find the best node to upgrade (most disconnected neighbors)
+    let bestCandidate = null;
+    let bestScore = -1;
+
+    for(const node of disconnected){
+
+      // must be within LRA range of gateway or existing LRA
+      let inRange = false;
       for(const g of nodesRef.current){
-
-        if(g.type !== "gateway") continue;
-
-        const d = distance(node, g);
-
-        if(d <= 3){
-          node.type = "lra";
-          node.height = 10;
-          node.range = 3;
-          if(node.markerElement){
-            node.markerElement.style.background = "orange";
-          }
-
-          recs.push({
-            text: `⬆️ ${node.name.toUpperCase()} upgraded to LRA (needed for connectivity)`
-          });
-
+        if(g.type !== "gateway" && g.type !== "lra") continue;
+        if(distance(node, g) <= 3){
+          inRange = true;
           break;
         }
       }
+
+      if(!inRange) continue;
+
+      // score = how many disconnected nodes are within SRA range
+      let score = 0;
+      for(const other of disconnected){
+        if(other === node) continue;
+        if(distance(node, other) <= 0.75) score++;
+      }
+
+      if(score > bestScore){
+        bestScore = score;
+        bestCandidate = node;
+      }
     }
+
+    if(!bestCandidate) break;
+
+    bestCandidate.type = "lra";
+    bestCandidate.height = 10;
+    bestCandidate.range = 3;
+    if(bestCandidate.markerElement){
+      bestCandidate.markerElement.style.background = "orange";
+    }
+
+    recs.push({
+      text: `⬆️ ${bestCandidate.name.toUpperCase()} upgraded to LRA (needed for connectivity)`
+    });
+
+    // rebuild and check again
+    await computeLinks();
   }
 
   // ✅ Rebuild after upgrades
@@ -854,39 +884,60 @@ addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
 }
 // ✅ Build initial connections
 await computeLinks();
-// ✅ UPGRADE ONLY NODES THAT FAIL TO CONNECT
-for (const node of nodesRef.current) {
+// ✅ Upgrade ONE node at a time to minimize LRA usage
+for(let pass = 0; pass < 10; pass++){
 
-  if (node.type === "gateway") continue;
+  let upgraded = false;
 
-  const path = getPath(node);
-  const reachesGateway = path.some(n => n.type === "gateway");
+  let disconnected = [];
+  for(const node of nodesRef.current){
+    if(node.type === "gateway") continue;
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
+    if(!reachesGateway) disconnected.push(node);
+  }
 
-  if (!reachesGateway) {
+  if(disconnected.length === 0) break;
 
-    for (const g of nodesRef.current) {
+  let bestCandidate = null;
+  let bestScore = -1;
 
-      if (g.type !== "gateway") continue;
+  for(const node of disconnected){
 
-      const d = distance(node, g);
-
-      // ✅ LRA range
-      if (d <= 3) {
-        node.type = "lra";
-        node.range = 3;
-if (node.markerElement) {
-  node.markerElement.style.background = "orange";
-}
-
+    let inRange = false;
+    for(const g of nodesRef.current){
+      if(g.type !== "gateway" && g.type !== "lra") continue;
+      if(distance(node, g) <= 3){
+        inRange = true;
         break;
       }
     }
+
+    if(!inRange) continue;
+
+    let score = 0;
+    for(const other of disconnected){
+      if(other === node) continue;
+      if(distance(node, other) <= 0.75) score++;
+    }
+
+    if(score > bestScore){
+      bestScore = score;
+      bestCandidate = node;
+    }
   }
+
+  if(!bestCandidate) break;
+
+  bestCandidate.type = "lra";
+  bestCandidate.range = 3;
+  bestCandidate.height = 10;
+  if(bestCandidate.markerElement){
+    bestCandidate.markerElement.style.background = "orange";
+  }
+
+  await computeLinks();
 }
-
-// ✅ REBUILD NETWORK AFTER CHANGES
-await computeLinks();
-
 
   // ✅ SINGLE MODEM CHECK
   placedNodes.forEach(node => {
