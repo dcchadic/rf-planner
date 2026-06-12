@@ -194,7 +194,10 @@ async function computeLinks(){
 
       const d = distance(a, b);
       
-    if (d > a.range) continue;
+   
+ const linkRange = (b.type === "lra") ? b.range : a.range;
+    if (d > linkRange) continue;
+
 
       const isGateway = b.type === "gateway";
 
@@ -517,7 +520,8 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-           if (d > a.range) continue;
+          const linkRange = (b.type === "lra") ? b.range : a.range;
+      if (d > linkRange) continue;
 
 
       const los = await checkLOS(a, b, a.height, b.height);
@@ -567,41 +571,39 @@ if(!los.clear){
 
 a.recommendedHeight = targetHeight;
 
-    // ✅ SIGNAL CONDITION
+ // ✅ SIGNAL CONDITION
     const weakSignal = bestSignal < -90;
 
     // ✅ FINAL RECOMMENDATION LOGIC
-    if(terrainBlocked || weakSignal){
+
+    // No node in range at all
+    if(bestSignal === -999){
+      recs.push({
+        text: `📶 ${a.name.toUpperCase()}: Out of range — recommend Single Modem`
+      });
+
+    } else if(terrainBlocked || weakSignal){
 
       if(!capped){
-
         recs.push({
           text: `📡 ${a.name.toUpperCase()}: Set antenna height to ~${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
         });
-
       } else {
-
         if(a.type === "sra"){
-
           recs.push({
             text: `⬆️ ${a.name.toUpperCase()}: Max height reached (5 ft). Upgrade to LRA (${bestSignal.toFixed(0)} dBm)`
           });
-
         } else {
-
           recs.push({
             text: `📡 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
           });
-
         }
       }
 
     } else {
-
       recs.push({
         text: `✅ ${a.name.toUpperCase()}: Good link (${bestSignal.toFixed(0)} dBm)`
       });
-
     }
 
   }
