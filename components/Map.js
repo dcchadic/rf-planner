@@ -195,8 +195,7 @@ async function computeLinks(){
 
       const d = distance(a, b);
       
-const linkRange = (b.type === "gateway" || b.type === "lra") ? b.range : a.range;
-        if (d > linkRange) continue;
+    if (d > a.range) continue;
 
       const isGateway = b.type === "gateway";
 
@@ -520,7 +519,7 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-       const linkRange = (b.type === "gateway" || b.type === "lra") ? b.range : a.range;
+          if (d > a.range) continue;
         if (d > linkRange) continue;
 
 
