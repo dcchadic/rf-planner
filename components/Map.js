@@ -100,7 +100,6 @@ async function checkLOS(p1, p2, h1, h2){
   const elevMid = await getElevation(midLng, midLat);
 
   const losLine = ((elev1 + h1) + (elev2 + h2)) / 2;
- requiredHeight: elevMid - losLine + 5
 
   if (elevMid > losLine) {
     return {
@@ -518,8 +517,7 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-          if (d > a.range) continue;
-        if (d > linkRange) continue;
+           if (d > a.range) continue;
 
 
       const los = await checkLOS(a, b, a.height, b.height);
@@ -885,8 +883,7 @@ for (const r of importedData) {
 }
 
 // ✅ PLACE GATEWAY
-addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
-
+addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name, true);
  const placedNodes = [];
 
  for (let i = 0; i < importedData.length; i++) {
@@ -1010,31 +1007,6 @@ if (disconnectedCount <= 6 && disconnectedCount > 0) {
   }
 }
 
-// ✅ ONLY add new gateway if something truly cannot connect
-let disconnectedCount = 0;
-
-for (const node of nodesRef.current) {
-  if (node.type === "gateway") continue;
-  const path = getPath(node);
-  const reachesGateway = path.some(n => n.type === "gateway");
-  if (!reachesGateway) {
-    disconnectedCount++;
-  }
-}
-
-if (disconnectedCount <= 6 && disconnectedCount > 0) {
-  for (const node of nodesRef.current) {
-    if (node.type === "gateway") continue;
-    const path = getPath(node);
-    const reachesGateway = path.some(n => n.type === "gateway");
-    if (!reachesGateway) {
-      recs.push({
-        text: `📶 ${node.name.toUpperCase()}: Cannot reach gateway — recommend Single Modem`
-      });
-    }
-  }
-}
-
 if (disconnectedCount > 6) {
   let candidate = null;
   for (const node of nodesRef.current) {
@@ -1047,6 +1019,7 @@ if (disconnectedCount > 6) {
     recs.push({ text: `📡 Secondary Gateway added (needed for connectivity)` });
   }
 }
+
 // ✅ ✅ NOW FINISH THE FUNCTION
 draw();
 
