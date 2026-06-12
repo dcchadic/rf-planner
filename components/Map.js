@@ -184,10 +184,10 @@ async function computeLinks(){
 
     if (a.type === "gateway") continue;
 
-    let clearGateway = null;
-    let clearMesh = null;
-    let blockedGateway = null;
-    let blockedMesh = null;
+   let clearGateway   = null;  let clearGatewayDist   = Infinity;
+      let clearMesh      = null;  let clearMeshDist      = Infinity;
+      let blockedGateway = null;  let blockedGatewayDist = Infinity;
+      let blockedMesh    = null;  let blockedMeshDist    = Infinity;
 
     for (const b of nodesRef.current) {
 
@@ -214,12 +214,11 @@ async function computeLinks(){
 
       const los = await checkLOS(a, b, a.height, b.height);
 
-      if (isGateway && los.clear && !clearGateway) clearGateway = b;
-      else if (isGateway && !los.clear && !blockedGateway) blockedGateway = b;
-      else if (!isGateway && los.clear && !clearMesh) clearMesh = b;
-      else if (!isGateway && !los.clear && !blockedMesh) blockedMesh = b;
+     if      (isGateway  && los.clear  && d < clearGatewayDist)   { clearGateway   = b; clearGatewayDist   = d; }
+        else if (isGateway  && !los.clear && d < blockedGatewayDist) { blockedGateway = b; blockedGatewayDist = d; }
+        else if (!isGateway && los.clear  && d < clearMeshDist)      { clearMesh      = b; clearMeshDist      = d; }
+        else if (!isGateway && !los.clear && d < blockedMeshDist)    { blockedMesh    = b; blockedMeshDist    = d; }
 
-      if (clearGateway) break;
     }
 
     const best = clearGateway || clearMesh || blockedGateway || blockedMesh || null;
@@ -985,7 +984,7 @@ for(let pass = 0; pass < 10; pass++){
   });
 
  // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
-let needsGateway = false;
+let disconnectedCount = 0;
 
 for (const node of nodesRef.current) {
 
@@ -995,13 +994,24 @@ for (const node of nodesRef.current) {
   const reachesGateway = path.some(n => n.type === "gateway");
 
   if (!reachesGateway) {
-    needsGateway = true;
-    break;
+    disconnectedCount++;
+  }
+}
+if (disconnectedCount <= 6 && disconnectedCount > 0) {
+  for (const node of nodesRef.current) {
+    if (node.type === "gateway") continue;
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
+    if (!reachesGateway) {
+      recs.push({
+        text: `📶 ${node.name.toUpperCase()}: Cannot reach gateway — recommend Single Modem`
+      });
+    }
   }
 }
 
 // ✅ ONLY add new gateway if something truly cannot connect
-if (needsGateway) {
+if (disconnectedCount > 6) {
 
   let candidate = null;
 
