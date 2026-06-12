@@ -116,7 +116,7 @@ async function checkLOS(p1, p2, h1, h2){
 }
  
   // ---------- ADD NODE ----------
-  function addNode(map,lng,lat,type,name=null){
+  function addNode(map,lng,lat,type,name=null,silent=false){
 
     
    const el = document.createElement("div");
@@ -164,9 +164,11 @@ setEditType(node.type);   // ✅ NEW
     };
 
    node.marker = marker; 
-    nodesRef.current.push(node);
-    redraw();
+    
+nodesRef.current.push(node);
+    if (!silent) redraw();
   }
+
 
  // ---------- ROUTING ----------
 async function computeLinks(){
@@ -193,9 +195,8 @@ async function computeLinks(){
 
       const d = distance(a, b);
       
-const linkRange = Math.max(a.range, b.range);
+const linkRange = (b.type === "gateway" || b.type === "lra") ? b.range : a.range;
         if (d > linkRange) continue;
-
 
       const isGateway = b.type === "gateway";
 
@@ -519,7 +520,7 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-        const linkRange = Math.max(a.range, b.range);
+       const linkRange = (b.type === "gateway" || b.type === "lra") ? b.range : a.range;
         if (d > linkRange) continue;
 
 
@@ -723,7 +724,7 @@ async function optimizeExisting(){
     if(node.type === "gateway") continue;
 
     node.type = "sra";
-    node.height = 10;
+    node.height = 5;
     node.range = 0.75;
     if(node.markerElement){
       node.markerElement.style.background = "green";
@@ -888,23 +889,18 @@ for (const r of importedData) {
 // ✅ PLACE GATEWAY
 addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
 
-  let count = 0;
-  const placedNodes = [];
+ const placedNodes = [];
 
- for (let i = 1; i < importedData.length; i++) {
-
-  if (count >= 25) break;
+ for (let i = 0; i < importedData.length; i++) {
 
   const r = importedData[i];
 
-  // ✅ skip gateway node
   if (r === gateway) continue;
 
   placedNodes.push(r);
 
-  addNode(map, r.Longitude, r.Latitude, "sra", r.Name);
-
-  count++;
+  addNode(map, r.Longitude, r.Latitude, "sra", r.Name, true);
+}
 }
 // ✅ Build initial connections
 await computeLinks();
