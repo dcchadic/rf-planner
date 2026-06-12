@@ -1011,39 +1011,42 @@ if (disconnectedCount <= 6 && disconnectedCount > 0) {
 }
 
 // ✅ ONLY add new gateway if something truly cannot connect
-if (disconnectedCount > 6) {
+let disconnectedCount = 0;
 
-  let candidate = null;
-
-  for (const node of nodesRef.current) {
-
-    if (node.type === "gateway") continue;
-
-    const path = getPath(node);
-    const reachesGateway = path.some(n => n.type === "gateway");
-
-    if (!reachesGateway) {
-      candidate = node;
-      break;
-    }
-  }
-
-  // ✅ OUTSIDE the loop (this is important)
-  if (candidate) {
-    addNode(
-      map,
-      candidate.lng,
-      candidate.lat,
-      "gateway",
-      "GATEWAY-2"
-    );
-
-    recs.push({
-      text: `📡 Secondary Gateway added (needed for connectivity)`
-    });
+for (const node of nodesRef.current) {
+  if (node.type === "gateway") continue;
+  const path = getPath(node);
+  const reachesGateway = path.some(n => n.type === "gateway");
+  if (!reachesGateway) {
+    disconnectedCount++;
   }
 }
 
+if (disconnectedCount <= 6 && disconnectedCount > 0) {
+  for (const node of nodesRef.current) {
+    if (node.type === "gateway") continue;
+    const path = getPath(node);
+    const reachesGateway = path.some(n => n.type === "gateway");
+    if (!reachesGateway) {
+      recs.push({
+        text: `📶 ${node.name.toUpperCase()}: Cannot reach gateway — recommend Single Modem`
+      });
+    }
+  }
+}
+
+if (disconnectedCount > 6) {
+  let candidate = null;
+  for (const node of nodesRef.current) {
+    if (node.type === "gateway") continue;
+    const path = getPath(node);
+    if (!path.some(n => n.type === "gateway")){ candidate = node; break; }
+  }
+  if (candidate) {
+    addNode(map, candidate.lng, candidate.lat, "gateway", "GATEWAY-2", true);
+    recs.push({ text: `📡 Secondary Gateway added (needed for connectivity)` });
+  }
+}
 // ✅ ✅ NOW FINISH THE FUNCTION
 draw();
 
