@@ -901,7 +901,7 @@ addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name);
 
   addNode(map, r.Longitude, r.Latitude, "sra", r.Name, true);
 }
-}
+
 // ✅ Build initial connections
 await computeLinks();
 // ✅ Upgrade ONE node at a time to minimize LRA usage
