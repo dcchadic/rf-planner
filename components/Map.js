@@ -152,6 +152,7 @@ setEditType(node.type);   // ✅ NEW
       const p = marker.getLngLat();
       node.lng=p.lng;
       node.lat=p.lat;
+      node.elevation = null;
       redraw();
     });
 
@@ -254,6 +255,10 @@ const linkRange = Math.max(a.range, b.range);
     const map = mapRef.current;
     if(!map) return;
 
+for (const n of nodesRef.current){
+      n.blocked = false;
+      n.blockDetail = null;
+    }
     await computeLinks();
 
 console.log("LINKS:", linksRef.current);
@@ -317,6 +322,11 @@ if (!path || path.length < 2) continue;
         const los = await checkLOS(p1, p2, p1.height, p2.height);
         const d = distance(p1,p2);
 const signal = calcPower(d);
+
+if (!los.clear){
+          p1.blocked = true;
+          p1.blockDetail = `⛰️ +${Math.ceil(los.requiredHeight)}ft to clear → ${p2.name}`;
+        }
 
         const lineId = `line-${i}-${j}`;
 
@@ -1213,7 +1223,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   <div style={{fontWeight:"bold", marginBottom:6}}>Nodes</div>
 
  
- {nodesRef.current.map((n, i) => (
+{nodesRef.current.map((n, i) => (
     <div key={i} style={{marginBottom:4}}>
       
 <span style={{
@@ -1224,9 +1234,20 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
 </span>
 
+{n.elevation !== null && (
+  <span style={{color:"#888", fontSize:11}}>
+    {" "}| Elev: {n.elevation}ft
+  </span>
+)}
+
+{n.blocked && n.blockDetail && (
+  <div style={{color:"red", fontSize:11, marginLeft:10}}>
+    {n.blockDetail}
+  </div>
+)}
+
     </div>
   ))}
-
 </div>
 
 <hr/>
