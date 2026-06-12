@@ -77,7 +77,7 @@ async function getElevation(lng, lat){
 
     const data = await res.json();
 
-    const elev = data.features?.[0]?.properties?.ele || 0;
+    const elev = (data.features?.[0]?.properties?.ele || 0) * 3.281;
     elevationCache[key] = elev;
 
     return elev;
@@ -100,6 +100,7 @@ async function checkLOS(p1, p2, h1, h2){
   const elevMid = await getElevation(midLng, midLat);
 
   const losLine = ((elev1 + h1) + (elev2 + h2)) / 2;
+ requiredHeight: elevMid - losLine + 5
 
   if (elevMid > losLine) {
     return {
@@ -128,12 +129,14 @@ el.style.background =
 
 const node = {
   lng, lat, type,
-  markerElement: el,   // ✅ NOW it's valid
+  markerElement: el,
   height: type==="gateway"?15:type==="lra"?10:5,
   range: type==="gateway"?5:type==="lra"?3:0.75,
-  name: name || `${type}-${nodesRef.current.length+1}`
+  name: name || `${type}-${nodesRef.current.length+1}`,
+  elevation: null,
+  blocked: false,
+  blockDetail: null
 };
-
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat])
       .addTo(map);
@@ -188,7 +191,10 @@ async function computeLinks(){
       if (b === a) continue;
 
       const d = distance(a, b);
-      if (d > a.range) continue;
+      
+const linkRange = Math.max(a.range, b.range);
+        if (d > linkRange) continue;
+
 
       const isGateway = b.type === "gateway";
 
@@ -267,12 +273,18 @@ console.log("LINKS:", linksRef.current);
 
       const nodeId = "node"+i;
 
+ if (a.elevation === null){
+        const elevM = await getElevation(a.lng, a.lat);
+        a.elevation = Math.round(elevM);
+      }
+
+
       map.addSource(nodeId,{
         type:"geojson",
         data:{
           type:"Feature",
           geometry:{type:"Point",coordinates:[a.lng,a.lat]},
-          properties:{text:`${a.name}\n${a.height}ft`}
+       properties:{text:`${a.name}\n${a.height}ft AGL | Elev ${a.elevation || '...'}ft`}
         }
       });
 
@@ -497,7 +509,9 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-      if(d > a.range) continue;
+        const linkRange = Math.max(a.range, b.range);
+        if (d > linkRange) continue;
+
 
       const los = await checkLOS(a, b, a.height, b.height);
 
