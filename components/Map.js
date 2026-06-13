@@ -1731,13 +1731,14 @@ saveSnapshot();
   <div style={{fontWeight:"bold", marginBottom:6}}>
     Nodes ({nodesRef.current.length})
   </div>
- <div style={{fontSize:11, color:"#888", marginBottom:6}}>
+<div style={{fontSize:11, color:"#888", marginBottom:2}}>
     🔵 {nodesRef.current.filter(n => n.type === "gateway").length} Gateway
     {" | "}🟠 {nodesRef.current.filter(n => n.type === "lra").length} LRA
     {" | "}🟢 {nodesRef.current.filter(n => n.type === "sra").length} SRA
-    {" | "}⚫ {nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length} Single Modem
   </div>
-
+  <div style={{fontSize:11, color:"#888", marginBottom:6}}>
+    ⚫ {nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length} Single Modem
+  </div>
  
 {nodesRef.current.map((n, i) => (
     <div key={i} style={{marginBottom:4}}>
