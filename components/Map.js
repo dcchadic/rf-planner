@@ -47,10 +47,49 @@ const [nodeVersion, setNodeVersion] = useState(0);
 
     mapRef.current = map;
 
-map.addControl(new mapboxgl.ScaleControl({
-      maxWidth: 200,
-      unit: "imperial"
-    }), "bottom-right");
+
+// ✅ Custom scale bars for 0.75mi and 3mi
+    const scaleBox = document.createElement("div");
+    scaleBox.style.position = "absolute";
+    scaleBox.style.bottom = "30px";
+    scaleBox.style.right = "10px";
+    scaleBox.style.background = "rgba(0,0,0,0.7)";
+    scaleBox.style.color = "white";
+    scaleBox.style.padding = "8px 12px";
+    scaleBox.style.borderRadius = "6px";
+    scaleBox.style.fontSize = "12px";
+    scaleBox.style.zIndex = "1000";
+    scaleBox.innerHTML = `
+      <div style="margin-bottom:6px">
+        <div style="height:4px;background:green;margin-bottom:2px" id="sra-bar"></div>
+        <span>0.75 mi (SRA)</span>
+      </div>
+      <div>
+        <div style="height:4px;background:orange;margin-bottom:2px" id="lra-bar"></div>
+        <span>3 mi (LRA)</span>
+      </div>
+    `;
+    containerRef.current.style.position = "relative";
+    containerRef.current.appendChild(scaleBox);
+
+    function updateScaleBars(){
+      const zoom = map.getZoom();
+      const lat = map.getCenter().lat;
+      const metersPerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+      const sraPixels = (0.75 * 1609.34) / metersPerPx;
+      const lraPixels = (3 * 1609.34) / metersPerPx;
+
+      const sraBar = document.getElementById("sra-bar");
+      const lraBar = document.getElementById("lra-bar");
+
+      if(sraBar) sraBar.style.width = Math.min(sraPixels, 300) + "px";
+      if(lraBar) lraBar.style.width = Math.min(lraPixels, 300) + "px";
+    }
+
+    map.on("zoom", updateScaleBars);
+    map.on("move", updateScaleBars);
+    map.on("load", updateScaleBars);
+
 
     map.on("click",(e)=>{
       addNode(map, e.lngLat.lng, e.lngLat.lat, modeRef.current);
@@ -1219,9 +1258,14 @@ setNodeVersion(v => v + 1);
   cursor: "pointer",
   textDecoration: "underline"
 }}
-  onClick={() => {
+  
+onClick={() => {
     mapRef.current.flyTo({ center: [n.lng, n.lat], zoom: 15 });
+    setSelectedNode(n);
+    setEditName(n.name);
+    setEditType(n.type);
   }}
+
 >
   {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
 </span>
