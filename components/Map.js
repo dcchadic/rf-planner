@@ -1443,7 +1443,6 @@ if (disconnectedCount > 6) {
     addNode(map, candidate.lng, candidate.lat, "gateway", "GATEWAY-2", true);
     recs.push({ text: `📡 Secondary Gateway added (needed for connectivity)` });
   }
-}
 
 // ✅ ✅ NOW FINISH THE FUNCTION
 draw();
