@@ -318,9 +318,49 @@ console.log("LINKS:", linksRef.current);
     const layers = map.getStyle().layers || [];
 
     layers.forEach(l=>{
-      if(l.id.startsWith("node") || l.id.startsWith("line") || l.id.startsWith("label") || l.id.startsWith("route")){
+      if(l.id.startsWith("node") || l.id.startsWith("line") || l.id.startsWith("label") || l.id.startsWith("route") || l.id === "all-nodes"){
         if(map.getLayer(l.id)) map.removeLayer(l.id);
         if(map.getSource(l.id)) map.removeSource(l.id);
+      }
+    });
+// ✅ ALL NODE LABELS IN ONE LAYER
+    const nodeFeatures = [];
+    for(let k=0; k<nodesRef.current.length; k++){
+      const nd = nodesRef.current[k];
+      if (nd.elevation === null){
+        const elevM = await getElevation(nd.lng, nd.lat);
+        nd.elevation = Math.round(elevM);
+      }
+      nodeFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [nd.lng, nd.lat] },
+        properties: {
+          text: `${nd.name}\n${nd.height}ft AGL | Elev ${nd.elevation || '...'}ft`
+        }
+      });
+    }
+
+    map.addSource("all-nodes", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: nodeFeatures }
+    });
+
+    map.addLayer({
+      id: "all-nodes",
+      type: "symbol",
+      source: "all-nodes",
+      layout: {
+        "text-field": ["get", "text"],
+        "text-size": 12,
+        "text-variable-anchor": ["top", "bottom", "left", "right"],
+        "text-radial-offset": 1.2,
+        "text-justify": "auto",
+        "text-allow-overlap": false
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1
       }
     });
 
@@ -328,39 +368,7 @@ console.log("LINKS:", linksRef.current);
 
       const a = nodesRef.current[i];
 
-      const nodeId = "node"+i;
-
- if (a.elevation === null){
-        const elevM = await getElevation(a.lng, a.lat);
-        a.elevation = Math.round(elevM);
-      }
-
-
-      map.addSource(nodeId,{
-        type:"geojson",
-        data:{
-          type:"Feature",
-          geometry:{type:"Point",coordinates:[a.lng,a.lat]},
-       properties:{text:`${a.name}\n${a.height}ft AGL | Elev ${a.elevation || '...'}ft`}
-        }
-      });
-
-     map.addLayer({
-  id: nodeId,
-  type: "symbol",
-  source: nodeId,
-  layout: {
-    "text-field": ["get", "text"],
-    "text-size": 12
-  },
-  paint: {
-    "text-color": "#ffffff",
-    "text-halo-color": "#000000",
-    "text-halo-width": 1
-  }
-});
-
-      if(a.type==="gateway") continue;
+     if(a.type==="gateway") continue;
 
       const path = getPath(a);
 
