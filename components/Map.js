@@ -1024,8 +1024,9 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
       const los = await checkLOS(a, b, a.height, b.height);
 
 if(!los.clear && (a.type === "lra" || a.type === "gateway")){
-  recs.push({
-    text: `📡 ${a.name.toUpperCase()}: Increase height by ~${Math.ceil(los.requiredHeight)} ft (terrain)`
+ recs.push({
+    text: `📡 ${a.name.toUpperCase()}: Increase height by ~${Math.ceil(los.requiredHeight)} ft (terrain)`,
+    node: a
   });
 }
 
@@ -1079,8 +1080,9 @@ a.recommendedHeight = targetHeight;
     } else if(terrainBlocked || weakSignal){
 
       if(!capped){
-        recs.push({
-          text: `📡 ${a.name.toUpperCase()}: Set antenna height to ~${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
+      recs.push({
+          text: `📡 ${a.name.toUpperCase()}: Set antenna height to ~${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`,
+          node: a
         });
       } else {
         if(a.type === "sra"){
@@ -1089,7 +1091,8 @@ a.recommendedHeight = targetHeight;
           });
         } else {
           recs.push({
-            text: `📡 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`
+            text: `📡 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`,
+            node: a
           });
         }
       }
@@ -1782,9 +1785,19 @@ setEditHeight(n.height);
 <hr/>
 
       {/* ✅ ✅ RECOMMENDATIONS */}
-      {recommendations.map((r,i)=>(
-        <div key={i} style={{marginBottom:6}}>
+     {recommendations.map((r,i)=>(
+        <div key={i} style={{
+          marginBottom:6,
+          cursor: r.node ? "pointer" : "default",
+          textDecoration: r.node ? "underline" : "none",
+          color: r.node ? "#2196F3" : "inherit"
+        }}
+          onClick={() => {
+            if(r.node) generateProfile(r.node);
+          }}
+        >
           {r.text}
+          {r.node && " 📊"}
         </div>
       ))}
 
