@@ -39,10 +39,17 @@ const canvasRef = useRef(null);
 const [profileFromHeight, setProfileFromHeight] = useState(0);
 const [profileToHeight, setProfileToHeight] = useState(0);
 
+const [measureMode, setMeasureMode] = useState(false);
+const measurePoints = useRef([]);
+const measureMarkersRef = useRef([]);
+
 
 
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  const measureModeRef = useRef(false);
+  useEffect(() => { measureModeRef.current = measureMode; }, [measureMode]);
 
   // ---------- INIT ----------
   useEffect(()=>{
@@ -58,53 +65,14 @@ const [profileToHeight, setProfileToHeight] = useState(0);
 
     mapRef.current = map;
 
-
-// ✅ Custom scale bars for 0.75mi and 3mi
-    const scaleBox = document.createElement("div");
-    scaleBox.style.position = "absolute";
-    scaleBox.style.bottom = "30px";
-    scaleBox.style.right = "10px";
-    scaleBox.style.background = "rgba(0,0,0,0.7)";
-    scaleBox.style.color = "white";
-    scaleBox.style.padding = "8px 12px";
-    scaleBox.style.borderRadius = "6px";
-    scaleBox.style.fontSize = "12px";
-    scaleBox.style.zIndex = "1000";
-    scaleBox.innerHTML = `
-      <div style="margin-bottom:6px">
-        <div style="height:4px;background:green;margin-bottom:2px" id="sra-bar"></div>
-        <span>0.75 mi (SRA)</span>
-      </div>
-      <div>
-        <div style="height:4px;background:orange;margin-bottom:2px" id="lra-bar"></div>
-        <span>3 mi (LRA)</span>
-      </div>
-    `;
-    containerRef.current.style.position = "relative";
-    containerRef.current.appendChild(scaleBox);
-
-    function updateScaleBars(){
-      const zoom = map.getZoom();
-      const lat = map.getCenter().lat;
-      const metersPerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
-      const sraPixels = (0.75 * 1609.34) / metersPerPx;
-      const lraPixels = (3 * 1609.34) / metersPerPx;
-
-      const sraBar = document.getElementById("sra-bar");
-      const lraBar = document.getElementById("lra-bar");
-
-      if(sraBar) sraBar.style.width = Math.min(sraPixels, 300) + "px";
-      if(lraBar) lraBar.style.width = Math.min(lraPixels, 300) + "px";
-    }
-
-    map.on("zoom", updateScaleBars);
-    map.on("move", updateScaleBars);
-    map.on("load", updateScaleBars);
-
-
-    map.on("click",(e)=>{
+map.on("click",(e)=>{
+      if(measureModeRef.current){
+        handleMeasureClick(e.lngLat.lng, e.lngLat.lat);
+        return;
+      }
       addNode(map, e.lngLat.lng, e.lngLat.lat, modeRef.current);
     });
+
 
     return ()=> map.remove();
 
@@ -189,7 +157,9 @@ const node = {
   name: name || `${type}-${nodesRef.current.length+1}`,
   elevation: null,
   blocked: false,
-  blockDetail: null
+  blockDetail: null,
+  outOfRange: false
+
 };
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat])
@@ -332,6 +302,19 @@ for (const n of nodesRef.current){
     }
     await computeLinks();
 
+for (const n of nodesRef.current){
+      if (n.type === "gateway") { n.outOfRange = false; continue; }
+      const path = getPath(n);
+      const reaches = path.some(p => p.type === "gateway");
+      n.outOfRange = !reaches;
+      if (n.outOfRange && n.markerElement){
+        n.markerElement.style.background = "black";
+      } else if (n.markerElement){
+        n.markerElement.style.background =
+          n.type === "gateway" ? "blue" :
+          n.type === "lra" ? "orange" : "green";
+      }
+    }
 console.log("LINKS:", linksRef.current);
 
     const layers = map.getStyle().layers || [];
@@ -762,6 +745,106 @@ function undo(){
     });
     redraw();
   }
+function handleMeasureClick(lng, lat){
+    const map = mapRef.current;
+
+    // Add a small red dot at click point
+    const el = document.createElement("div");
+    el.style.width = "10px";
+    el.style.height = "10px";
+    el.style.borderRadius = "50%";
+    el.style.background = "red";
+    el.style.border = "2px solid white";
+
+    const marker = new mapboxgl.Marker({element: el})
+      .setLngLat([lng, lat])
+      .addTo(map);
+
+    measureMarkersRef.current.push(marker);
+    measurePoints.current.push({lng, lat});
+
+    if(measurePoints.current.length === 2){
+      const p1 = measurePoints.current[0];
+      const p2 = measurePoints.current[1];
+      const d = distance(p1, p2);
+
+      // Draw line
+      if(map.getLayer("measure-line")) map.removeLayer("measure-line");
+      if(map.getSource("measure-line")) map.removeSource("measure-line");
+
+      map.addSource("measure-line", {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [[p1.lng, p1.lat], [p2.lng, p2.lat]]
+          }
+        }
+      });
+
+      map.addLayer({
+        id: "measure-line",
+        type: "line",
+        source: "measure-line",
+        paint: {
+          "line-color": "#ff00ff",
+          "line-width": 3,
+          "line-dasharray": [4, 3]
+        }
+      });
+
+      // Distance label
+      if(map.getLayer("measure-label")) map.removeLayer("measure-label");
+      if(map.getSource("measure-label")) map.removeSource("measure-label");
+
+      map.addSource("measure-label", {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [(p1.lng + p2.lng)/2, (p1.lat + p2.lat)/2]
+          },
+          properties: {
+            text: `📏 ${d.toFixed(2)} mi (${(d * 5280).toFixed(0)} ft)`
+          }
+        }
+      });
+
+      map.addLayer({
+        id: "measure-label",
+        type: "symbol",
+        source: "measure-label",
+        layout: {
+          "text-field": ["get", "text"],
+          "text-size": 16,
+          "text-offset": [0, -1.5],
+          "text-anchor": "bottom",
+          "text-allow-overlap": true
+        },
+        paint: {
+          "text-color": "#ff00ff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 2
+        }
+      });
+    }
+  }
+
+  function clearMeasure(){
+    const map = mapRef.current;
+
+    measurePoints.current = [];
+
+    measureMarkersRef.current.forEach(m => m.remove());
+    measureMarkersRef.current = [];
+
+    if(map.getLayer("measure-line")) map.removeLayer("measure-line");
+    if(map.getSource("measure-line")) map.removeSource("measure-line");
+    if(map.getLayer("measure-label")) map.removeLayer("measure-label");
+    if(map.getSource("measure-label")) map.removeSource("measure-label");
+  }
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
@@ -801,7 +884,7 @@ function exportExcel(){
       "Recommended Height (ft)": n.recommendedHeight || n.height,
       "Ground Elevation (ft)": n.elevation || "N/A",
       "Range (mi)": n.range,
-      "Status": n.blocked ? "BLOCKED" : "OK"
+        "Status": n.outOfRange ? "SINGLE MODEM" : n.blocked ? "BLOCKED" : "OK"
     }));
 
     // Sheet 2: Connections
@@ -1103,15 +1186,12 @@ async function optimizeExisting(){
       }
     }
 
-    bestNode.type = "gateway";
-    bestNode.height = 15;
-    bestNode.range = 3;
-    if(bestNode.markerElement){
-      bestNode.markerElement.style.background = "blue";
-    }
+    const gwLat = bestNode.lat + (60 / 364000);
+    const gwLng = bestNode.lng;
+    addNode(map, gwLng, gwLat, "gateway", "GATEWAY-1", true);
 
     recs.push({
-      text: `📡 ${bestNode.name.toUpperCase()} assigned as Gateway (network center)`
+      text: `📡 GATEWAY-1 placed 60ft north of ${bestNode.name.toUpperCase()}`
     });
   }
 
@@ -1274,17 +1354,16 @@ for (const r of importedData) {
 
 // ✅ Center map on gateway
 map.flyTo({ center: [gateway.Longitude, gateway.Latitude], zoom: 13 });
-// ✅ PLACE GATEWAY
-addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name, true);
- const placedNodes = [];
+// ✅ PLACE GATEWAY 60ft north of best node
+const gwLat = gateway.Latitude + (60 / 364000);
+const gwLng = gateway.Longitude;
+addNode(map, gwLng, gwLat, "gateway", "GATEWAY-1", true);
 
  for (let i = 0; i < importedData.length; i++) {
 
   const r = importedData[i];
 
-  if (r === gateway) continue;
-
-  placedNodes.push(r);
+   placedNodes.push(r);
 
   addNode(map, r.Longitude, r.Latitude, "sra", r.Name, true);
 }
@@ -1507,6 +1586,33 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       ↪️ Redo
     </button>
   </div>
+<div style={{display:"flex", gap:4, marginTop:6}}>
+    <button
+      onClick={() => {
+        clearMeasure();
+        setMeasureMode(!measureMode);
+      }}
+      style={{
+        flex:1,
+        background: measureMode ? "#ff00ff" : "#666",
+        color:"white",
+        padding:"6px",
+        border:"none",
+        cursor:"pointer"
+      }}
+    >
+      {measureMode ? "📏 Measuring..." : "📏 Measure"}
+    </button>
+    <button
+      onClick={() => {
+        clearMeasure();
+        setMeasureMode(false);
+      }}
+      style={{flex:1, background:"#666", color:"white", padding:"6px", border:"none", cursor:"pointer"}}
+    >
+      ✕ Clear
+    </button>
+  </div>
            <hr/>
 
       {/* ✅ Import text */}
@@ -1648,10 +1754,11 @@ saveSnapshot();
   <div style={{fontWeight:"bold", marginBottom:6}}>
     Nodes ({nodesRef.current.length})
   </div>
-  <div style={{fontSize:11, color:"#888", marginBottom:6}}>
+ <div style={{fontSize:11, color:"#888", marginBottom:6}}>
     🔵 {nodesRef.current.filter(n => n.type === "gateway").length} Gateway
     {" | "}🟠 {nodesRef.current.filter(n => n.type === "lra").length} LRA
     {" | "}🟢 {nodesRef.current.filter(n => n.type === "sra").length} SRA
+    {" | "}⚫ {nodesRef.current.filter(n => n.outOfRange).length} Single Modem
   </div>
 
  
@@ -1660,6 +1767,7 @@ saveSnapshot();
       
 <span style={{
   color:
+    n.outOfRange ? "black" :
     n.type==="gateway" ? "blue" :
     n.type==="lra" ? "orange" : "green",
   cursor: "pointer",
