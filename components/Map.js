@@ -130,7 +130,7 @@ const node = {
   lng, lat, type,
   markerElement: el,
   height: type==="gateway"?15:type==="lra"?10:5,
-  range: type==="gateway"?5:type==="lra"?3:0.75,
+  range: type==="gateway"?3:type==="lra"?3:0.75,
   name: name || `${type}-${nodesRef.current.length+1}`,
   elevation: null,
   blocked: false,
@@ -714,7 +714,7 @@ async function optimizeExisting(){
 
     bestNode.type = "gateway";
     bestNode.height = 15;
-    bestNode.range = 5;
+    bestNode.range = 3;
     if(bestNode.markerElement){
       bestNode.markerElement.style.background = "blue";
     }
@@ -766,7 +766,7 @@ async function optimizeExisting(){
       for(const g of nodesRef.current){
         if(g.type !== "gateway" && g.type !== "lra") continue;
        
- const upgradeRange = (g.type === "gateway") ? 5 : 3;
+ if(distance(node, g) <= 3){
       if(distance(node, g) <= upgradeRange){
 
           inRange = true;
@@ -935,7 +935,7 @@ for(let pass = 0; pass < 10; pass++){
     for(const g of nodesRef.current){
       if(g.type !== "gateway" && g.type !== "lra") continue;
      
- const upgradeRange = (g.type === "gateway") ? 5 : 3;
+  if(distance(node, g) <= 3){
       if(distance(node, g) <= upgradeRange){
 
         inRange = true;
@@ -1162,7 +1162,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 
   if(editType === "gateway"){
     selectedNode.height = 15;
-    selectedNode.range = 5;
+    selectedNode.range = 3;
   } 
   else if(editType === "lra"){
     selectedNode.height = 10;
