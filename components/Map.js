@@ -17,6 +17,8 @@ export default function Map(){
 const mapRef = useRef(null);
 const nodesRef = useRef([]);
 const linksRef = useRef({});
+const undoStack = useRef([]);
+const redoStack = useRef([]);
 
 
   const [mode,setMode] = useState("sra");
@@ -168,7 +170,7 @@ async function checkLOS(p1, p2, h1, h2){
 }
  
   // ---------- ADD NODE ----------
-  function addNode(map,lng,lat,type,name=null,silent=false){
+  function addNode(map,lng,lat,type,name=null,silent=false,customHeight=null){
 
     
    const el = document.createElement("div");
@@ -182,7 +184,7 @@ el.style.background =
 const node = {
   lng, lat, type,
   markerElement: el,
-  height: type==="gateway"?15:type==="lra"?10:5,
+  height: customHeight || (type==="gateway"?15:type==="lra"?10:5),
   range: type==="gateway"?3:type==="lra"?3:0.75,
   name: name || `${type}-${nodesRef.current.length+1}`,
   elevation: null,
@@ -212,14 +214,21 @@ setEditHeight(node.height);
     el.oncontextmenu=(e)=>{
       e.preventDefault();
       marker.remove();
-      nodesRef.current = nodesRef.current.filter(n=>n!==node);
+      
+ nodesRef.current = nodesRef.current.filter(n=>n!==node);
+      saveSnapshot();
       redraw();
+
     };
 
    node.marker = marker; 
     
+
 nodesRef.current.push(node);
-    if (!silent) redraw();
+    if (!silent){
+      saveSnapshot();
+      redraw();
+    }
   }
 
 
@@ -506,7 +515,7 @@ map.addLayer({
       return;
     }
 
-    const samples = 30;
+   const samples = Math.max(10, Math.round((distance(node, target) * 5280) / 100));
     const points = [];
     const totalDist = distance(node, target);
 
@@ -702,6 +711,57 @@ const fromElev = points[0].elev + profileFromHeight;
 
    }, [showProfile, profileData, profileFromHeight, profileToHeight]);
 
+function saveSnapshot(){
+    const snap = nodesRef.current.map(n => ({
+      name: n.name, type: n.type,
+      lat: n.lat, lng: n.lng,
+      height: n.height, range: n.range
+    }));
+    undoStack.current.push(JSON.stringify(snap));
+    redoStack.current = [];
+    if(undoStack.current.length > 50) undoStack.current.shift();
+  }
+function undo(){
+    if(undoStack.current.length === 0) return;
+    const currentSnap = nodesRef.current.map(n => ({
+      name: n.name, type: n.type,
+      lat: n.lat, lng: n.lng,
+      height: n.height, range: n.range
+    }));
+    redoStack.current.push(JSON.stringify(currentSnap));
+
+    const prev = JSON.parse(undoStack.current.pop());
+    const map = mapRef.current;
+
+    nodesRef.current.forEach(n => { if(n.marker) n.marker.remove(); });
+    nodesRef.current = [];
+
+    prev.forEach(n => {
+      addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+    });
+    redraw();
+  }
+
+  function redo(){
+    if(redoStack.current.length === 0) return;
+    const currentSnap = nodesRef.current.map(n => ({
+      name: n.name, type: n.type,
+      lat: n.lat, lng: n.lng,
+      height: n.height, range: n.range
+    }));
+    undoStack.current.push(JSON.stringify(currentSnap));
+
+    const next = JSON.parse(redoStack.current.pop());
+    const map = mapRef.current;
+
+    nodesRef.current.forEach(n => { if(n.marker) n.marker.remove(); });
+    nodesRef.current = [];
+
+    next.forEach(n => {
+      addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+    });
+    redraw();
+  }
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
@@ -730,6 +790,78 @@ function redraw(){
     URL.revokeObjectURL(url);
   }
 
+function exportExcel(){
+    // Sheet 1: Node Details
+    const nodeRows = nodesRef.current.map(n => ({
+      "Name": n.name,
+      "Type": n.type.toUpperCase(),
+      "Latitude": n.lat,
+      "Longitude": n.lng,
+      "Antenna Height (ft)": n.height,
+      "Recommended Height (ft)": n.recommendedHeight || n.height,
+      "Ground Elevation (ft)": n.elevation || "N/A",
+      "Range (mi)": n.range,
+      "Status": n.blocked ? "BLOCKED" : "OK"
+    }));
+
+    // Sheet 2: Connections
+    const connectionRows = [];
+    for(const a of nodesRef.current){
+      if(a.type === "gateway") continue;
+      const target = linksRef.current[a.name];
+      if(target){
+        const d = distance(a, target);
+        const signal = calcPower(d);
+        connectionRows.push({
+          "From": a.name,
+          "To": target.name,
+          "Distance (mi)": Number(d.toFixed(2)),
+          "Signal (dBm)": Number(signal.toFixed(0)),
+          "LOS": a.blocked ? "BLOCKED" : "CLEAR"
+        });
+      } else {
+        connectionRows.push({
+          "From": a.name,
+          "To": "NONE",
+          "Distance (mi)": "N/A",
+          "Signal (dBm)": "N/A",
+          "LOS": "NO CONNECTION"
+        });
+      }
+    }
+
+    // Sheet 3: Summary
+    const summaryRows = [
+      { "Item": "Total Nodes", "Value": nodesRef.current.length },
+      { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
+      { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
+      { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length }
+    ];
+
+    // Sheet 4: Recommendations
+    const recRows = recommendations.map(r => ({
+      "Recommendation": r.text
+    }));
+
+    // Build workbook
+    const wb = XLSX.utils.book_new();
+
+    const ws1 = XLSX.utils.json_to_sheet(nodeRows);
+    XLSX.utils.book_append_sheet(wb, ws1, "Nodes");
+
+    const ws2 = XLSX.utils.json_to_sheet(connectionRows);
+    XLSX.utils.book_append_sheet(wb, ws2, "Connections");
+
+    const ws3 = XLSX.utils.json_to_sheet(summaryRows);
+    XLSX.utils.book_append_sheet(wb, ws3, "Summary");
+
+    const ws4 = XLSX.utils.json_to_sheet(recRows);
+    XLSX.utils.book_append_sheet(wb, ws4, "Recommendations");
+
+    // Download
+    XLSX.writeFile(wb, "rf-network-report.xlsx");
+  }
+    
   // ✅ LOAD NETWORK — opens a saved file
   function loadNetwork(e){
     const reader = new FileReader();
@@ -746,7 +878,7 @@ function redraw(){
 
       // place each saved node
       data.forEach(n => {
-        addNode(map, n.lng, n.lat, n.type, n.name);
+        addNode(map, n.lng, n.lat, n.type, n.name, false, n.height);
       });
 
       // center map on loaded network
@@ -1349,6 +1481,16 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   <button onClick={optimizeExisting} style={{marginTop:6, width:"100%", background:"#4CAF50", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
     ⚡ Auto-Optimize
   </button>
+<button onClick={() => {
+    nodesRef.current.forEach(n => { if(n.marker) n.marker.remove(); });
+    nodesRef.current = [];
+    linksRef.current = {};
+    setRecommendations([]);
+    setSelectedNode(null);
+    redraw();
+  }} style={{marginTop:6, width:"100%", background:"#f44336", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
+    🗑️ Clear All
+  </button>
 </div>
 
 <div style={{
@@ -1357,6 +1499,14 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   padding:12
 }}>
 
+<div style={{display:"flex", gap:4, marginTop:6}}>
+    <button onClick={undo} style={{flex:1, background:"#666", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
+      ↩️ Undo
+    </button>
+    <button onClick={redo} style={{flex:1, background:"#666", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
+      ↪️ Redo
+    </button>
+  </div>
            <hr/>
 
       {/* ✅ Import text */}
@@ -1440,8 +1590,8 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     editType === "gateway" ? "blue" :
     editType === "lra" ? "orange" : "green";
 
-  
-setNodeVersion(v => v + 1);
+saveSnapshot();
+  setNodeVersion(v => v + 1);
   redraw();
 }}
 
@@ -1468,6 +1618,9 @@ setNodeVersion(v => v + 1);
       <button onClick={saveNetwork} style={{width:"100%", marginBottom:6}}>
         💾 Save Network
       </button>
+<button onClick={exportExcel} style={{width:"100%", marginBottom:6, background:"#FF9800", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
+        📊 Export to Excel
+      </button>
 
       <label style={{
         display:"block",
@@ -1488,7 +1641,14 @@ setNodeVersion(v => v + 1);
 <hr/>
 
 <div>
-  <div style={{fontWeight:"bold", marginBottom:6}}>Nodes</div>
+  <div style={{fontWeight:"bold", marginBottom:6}}>
+    Nodes ({nodesRef.current.length})
+  </div>
+  <div style={{fontSize:11, color:"#888", marginBottom:6}}>
+    🔵 {nodesRef.current.filter(n => n.type === "gateway").length} Gateway
+    {" | "}🟠 {nodesRef.current.filter(n => n.type === "lra").length} LRA
+    {" | "}🟢 {nodesRef.current.filter(n => n.type === "sra").length} SRA
+  </div>
 
  
 {nodesRef.current.map((n, i) => (
