@@ -1622,15 +1622,19 @@ saveSnapshot();
         📊 Export to Excel
       </button>
 
-      <label style={{
+     <label style={{
         display:"block",
         width:"100%",
         marginBottom:6,
-        padding:"4px 8px",
-        background:"#eee",
+        padding:"6px",
+        background:"#2196F3",
+        color:"white",
         textAlign:"center",
         cursor:"pointer",
-        border:"1px solid #ccc"
+        border:"none",
+        borderRadius:0,
+        fontSize:14,
+        boxSizing:"border-box"
       }}>
         📂 Load Network
         <input type="file" accept=".json" onChange={loadNetwork} style={{display:"none"}}/>
