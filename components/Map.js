@@ -1417,8 +1417,6 @@ for(let pass = 0; pass < 10; pass++){
 
      }
 
-  });
-
  // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
 let disconnectedCount = 0;
 
