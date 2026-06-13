@@ -1553,23 +1553,22 @@ setEditHeight(n.height);
           zIndex:2000,
           padding:10
         }}>
-          <button
-            onClick={() => setShowProfile(false)}
-            style={{
-              position:"absolute",
-              top:8,
-              right:8,
-              background:"red",
-              color:"white",
-              border:"none",
-              borderRadius:"50%",
-              width:28,
-              height:28,
-              cursor:"pointer",
-              fontWeight:"bold",
-              fontSize:14
-            }}
-          >✕</button>
+         <div style={{display:"flex", justifyContent:"flex-end", marginBottom:4}}>
+            <button
+              onClick={() => setShowProfile(false)}
+              style={{
+                background:"red",
+                color:"white",
+                border:"none",
+                borderRadius:"50%",
+                width:28,
+                height:28,
+                cursor:"pointer",
+                fontWeight:"bold",
+                fontSize:14
+              }}
+            >✕</button>
+          </div>
 
           <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
             <div>
