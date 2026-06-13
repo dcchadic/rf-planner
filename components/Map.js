@@ -467,18 +467,17 @@ text: los.clear
   }
 });
 
-
-
 map.addLayer({
   id: labelId,
   type: "symbol",
   source: labelId,
   layout: {
     "text-field": ["get", "text"],
-    "text-size": 14,
-    "text-offset": [0, 1.5],
-    "text-anchor": "top",
-    "text-allow-overlap": true
+    "text-size": 13,
+    "text-variable-anchor": ["top", "bottom", "left", "right"],
+    "text-radial-offset": 1.2,
+    "text-justify": "auto",
+   "text-allow-overlap": false
   },
   paint: {
     "text-color": "#00ffff",
@@ -486,7 +485,6 @@ map.addLayer({
     "text-halo-width": 2
   }
 });
-
 
       } // ✅ closes INNER loop (j loop)
 
@@ -646,12 +644,15 @@ map.addLayer({
       }
     }
 
-    // Node name labels
-    ctx.fillStyle = "#ffffff";
+   
+// Node name labels
+    ctx.fillStyle = "#00bcd4";
     ctx.font = "bold 12px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(`${profileData.from.name} (${profileData.from.height}ft)`, left + 50, top - 10);
-    ctx.fillText(`${profileData.to.name} (${profileData.to.height}ft)`, left + plotW - 50, top - 10);
+    ctx.textAlign = "left";
+    ctx.fillText(`${profileData.from.name} (${profileData.from.height}ft)`, left + 5, top + 15);
+    ctx.textAlign = "right";
+    ctx.fillText(`${profileData.to.name} (${profileData.to.height}ft)`, left + plotW - 5, top + 15);
+
 
     // Distance labels on X axis
     ctx.fillStyle = "#888";
