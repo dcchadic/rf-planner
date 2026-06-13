@@ -1298,14 +1298,7 @@ async function optimizeExisting(){
     }
   }
 
-     if(!canConnect){
-      recs.push({
-        text: `📶 ${node.name.toUpperCase()}: Add Single Modem`
-      });
-    }
-  }
-
-  // ✅ Redraw and show results
+       // ✅ Redraw and show results
   draw();
   setRecommendations(prev => [...prev, ...recs]);
 }
@@ -1415,9 +1408,7 @@ for(let pass = 0; pass < 10; pass++){
   await computeLinks();
 }
 
-     }
-
- // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
+  // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
 let disconnectedCount = 0;
 
 for (const node of nodesRef.current) {
@@ -1443,6 +1434,7 @@ if (disconnectedCount > 6) {
     addNode(map, candidate.lng, candidate.lat, "gateway", "GATEWAY-2", true);
     recs.push({ text: `📡 Secondary Gateway added (needed for connectivity)` });
   }
+}
 
 // ✅ ✅ NOW FINISH THE FUNCTION
 draw();
