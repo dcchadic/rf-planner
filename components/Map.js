@@ -692,12 +692,12 @@ const fromElev = points[0].elev + profileFromHeight;
       ctx.fillStyle = "#ff5555";
       ctx.font = "bold 16px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(`⚠️ Increase height by ~${recHeight}ft to clear obstruction`, W / 2, top + 15);
+      ctx.fillText(`⚠️ Increase height by ~${recHeight}ft to clear obstruction`, W / 2, top + 30);
     } else {
       ctx.fillStyle = "#4CAF50";
       ctx.font = "bold 16px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(`✅ Clear LOS — no height change needed`, W / 2, top + 15);
+      ctx.fillText(`✅ Clear LOS — no height change needed`, W / 2, top + 30);
     }
 
    }, [showProfile, profileData, profileFromHeight, profileToHeight]);
