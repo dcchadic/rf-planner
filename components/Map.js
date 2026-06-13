@@ -28,6 +28,7 @@ const [importedData, setImportedData] = useState([]);
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
 const [editType,setEditType] = useState("");
+const [editHeight, setEditHeight] = useState(0);
 const [nodeVersion, setNodeVersion] = useState(0);
 const [showProfile, setShowProfile] = useState(false);
 const [profileData, setProfileData] = useState(null);
@@ -192,7 +193,8 @@ const node = {
   e.stopPropagation(); // ✅ CRITICAL FIX
   setSelectedNode(node);
 setEditName(node.name);
-setEditType(node.type);   // ✅ NEW
+setEditType(node.type); 
+setEditHeight(node.height);
 });
 
     marker.on("dragend",()=>{
@@ -1357,13 +1359,30 @@ return (  <div style={{display:"flex",height:"100vh"}}>
           {/* ✅ Type */}
           <select
             value={editType}
-            onChange={e => setEditType(e.target.value)}
+            onChange={e => {
+              const newType = e.target.value;
+              setEditType(newType);
+              if(newType === "gateway") setEditHeight(15);
+              else if(newType === "lra") setEditHeight(10);
+              else setEditHeight(5);
+            }}
             style={{width:"100%", marginBottom:6}}
           >
             <option value="gateway">Gateway</option>
             <option value="lra">LRA</option>
             <option value="sra">SRA</option>
           </select>
+
+<div style={{marginBottom:6}}>
+            <label style={{fontSize:12}}>Antenna Height (ft):</label>
+            <input
+              type="number"
+              value={editHeight}
+              onChange={e => setEditHeight(Number(e.target.value))}
+              style={{width:"100%"}}
+            />
+          </div>
+
 
           {/* ✅ Save */}
           <button
@@ -1373,16 +1392,16 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   selectedNode.name = editName;
   selectedNode.type = editType;
 
-  if(editType === "gateway"){
-    selectedNode.height = 15;
+ if(editType === "gateway"){
+    selectedNode.height = editHeight;
     selectedNode.range = 3;
   } 
   else if(editType === "lra"){
-    selectedNode.height = 10;
+    selectedNode.height = editHeight;
     selectedNode.range = 3;
   } 
   else {
-    selectedNode.height = 5;
+    selectedNode.height = editHeight;
     selectedNode.range = 0.75;
   }
 
@@ -1458,6 +1477,7 @@ onClick={() => {
     setSelectedNode(n);
     setEditName(n.name);
     setEditType(n.type);
+setEditHeight(n.height);
   }}
 
 >
