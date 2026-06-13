@@ -195,7 +195,14 @@ async function computeLinks(){
       const d = distance(a, b);
       
    
-const linkRange = (b.type === "lra" || b.type === "gateway") ? 3 : a.range;
+let linkRange;
+    if (b.type === "lra") {
+      linkRange = b.range;
+    } else if (b.type === "gateway" && a.type !== "sra") {
+      linkRange = b.range;
+    } else {
+      linkRange = a.range;
+    }
     if (d > linkRange) continue;
 
       const isGateway = b.type === "gateway";
@@ -519,7 +526,14 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-         const linkRange = (b.type === "lra" || b.type === "gateway") ? 3 : a.range;
+         let linkRange;
+    if (b.type === "lra") {
+      linkRange = b.range;
+    } else if (b.type === "gateway" && a.type !== "sra") {
+      linkRange = b.range;
+    } else {
+      linkRange = a.range;
+    }
     if (d > linkRange) continue;
 
 
@@ -757,7 +771,10 @@ async function optimizeExisting(){
       let inRange = false;
       for(const g of nodesRef.current){
         if(g.type !== "gateway" && g.type !== "lra") continue;
-        if(distance(node, g) <= 3){
+       
+ const upgradeRange = (g.type === "gateway") ? 5 : 3;
+      if(distance(node, g) <= upgradeRange){
+
           inRange = true;
           break;
         }
@@ -923,7 +940,10 @@ for(let pass = 0; pass < 10; pass++){
     let inRange = false;
     for(const g of nodesRef.current){
       if(g.type !== "gateway" && g.type !== "lra") continue;
-      if(distance(node, g) <= 3){
+     
+ const upgradeRange = (g.type === "gateway") ? 5 : 3;
+      if(distance(node, g) <= upgradeRange){
+
         inRange = true;
         break;
       }
