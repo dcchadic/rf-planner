@@ -29,6 +29,10 @@ const [importedData, setImportedData] = useState([]);
   const [editName,setEditName] = useState("");
 const [editType,setEditType] = useState("");
 const [nodeVersion, setNodeVersion] = useState(0);
+const [showProfile, setShowProfile] = useState(false);
+const [profileData, setProfileData] = useState(null);
+const canvasRef = useRef(null);
+
 
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -490,6 +494,181 @@ map.addLayer({
 
 }
 
+// ✅ TERRAIN PROFILE GENERATOR
+  async function generateProfile(node){
+    const target = linksRef.current[node.name];
+    if(!target){
+      alert("This node has no connection to profile.");
+      return;
+    }
+
+    const samples = 30;
+    const points = [];
+    const totalDist = distance(node, target);
+
+    for(let i = 0; i <= samples; i++){
+      const t = i / samples;
+      const lng = node.lng + (target.lng - node.lng) * t;
+      const lat = node.lat + (target.lat - node.lat) * t;
+      const elev = await getElevation(lng, lat);
+      const d = totalDist * t;
+      points.push({ dist: d, elev, lng, lat });
+    }
+
+    setProfileData({
+      from: node,
+      to: target,
+      points,
+      totalDist
+    });
+    setShowProfile(true);
+  }
+// ✅ DRAW TERRAIN PROFILE ON CANVAS
+  useEffect(() => {
+    if(!showProfile || !profileData || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const points = profileData.points;
+    const padElev = 30;
+    const minElev = Math.min(...points.map(p => p.elev)) - padElev;
+    const maxElev = Math.max(...points.map(p => p.elev)) + padElev + profileData.from.height + profileData.to.height;
+    const maxDist = profileData.totalDist;
+
+    const left = 65;
+    const right = 25;
+    const top = 35;
+    const bottom = 45;
+    const plotW = W - left - right;
+    const plotH = H - top - bottom;
+
+    // Background
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, W, H);
+
+    // Elevation grid lines every 20ft
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 0.5;
+    ctx.fillStyle = "#888";
+    ctx.font = "11px Arial";
+    ctx.textAlign = "right";
+
+    const elevStep = 20;
+    const startElev = Math.floor(minElev / elevStep) * elevStep;
+
+    for(let e = startElev; e <= maxElev; e += elevStep){
+      const y = top + plotH - ((e - minElev) / (maxElev - minElev)) * plotH;
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + plotW, y);
+      ctx.stroke();
+      ctx.fillText(`${Math.round(e)}ft`, left - 5, y + 4);
+    }
+
+    // Terrain fill
+    ctx.beginPath();
+    ctx.moveTo(left, top + plotH);
+    for(let i = 0; i < points.length; i++){
+      const x = left + (points[i].dist / maxDist) * plotW;
+      const y = top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(left + plotW, top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(76, 175, 80, 0.4)";
+    ctx.fill();
+
+    // Terrain line
+    ctx.beginPath();
+    for(let i = 0; i < points.length; i++){
+      const x = left + (points[i].dist / maxDist) * plotW;
+      const y = top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH;
+      if(i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = "#4CAF50";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Antenna heights
+    const fromElev = points[0].elev + profileData.from.height;
+    const toElev = points[points.length - 1].elev + profileData.to.height;
+    const fromGroundY = top + plotH - ((points[0].elev - minElev) / (maxElev - minElev)) * plotH;
+    const toGroundY = top + plotH - ((points[points.length-1].elev - minElev) / (maxElev - minElev)) * plotH;
+    const fromTipY = top + plotH - ((fromElev - minElev) / (maxElev - minElev)) * plotH;
+    const toTipY = top + plotH - ((toElev - minElev) / (maxElev - minElev)) * plotH;
+
+    // From antenna pole
+    ctx.beginPath();
+    ctx.moveTo(left, fromGroundY);
+    ctx.lineTo(left, fromTipY);
+    ctx.strokeStyle = "#00bcd4";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // To antenna pole
+    ctx.beginPath();
+    ctx.moveTo(left + plotW, toGroundY);
+    ctx.lineTo(left + plotW, toTipY);
+    ctx.strokeStyle = "#00bcd4";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // LOS line (dashed)
+    ctx.beginPath();
+    ctx.moveTo(left, fromTipY);
+    ctx.lineTo(left + plotW, toTipY);
+    ctx.strokeStyle = "#ff5555";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Check if terrain crosses LOS
+    let blocked = false;
+    for(let i = 0; i < points.length; i++){
+      const t = i / (points.length - 1);
+      const losAtPoint = fromElev + (toElev - fromElev) * t;
+      if(points[i].elev > losAtPoint){
+        blocked = true;
+        const x = left + (points[i].dist / maxDist) * plotW;
+        const y = top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "red";
+        ctx.fill();
+      }
+    }
+
+    // Node name labels
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(`${profileData.from.name} (${profileData.from.height}ft)`, left + 50, top - 10);
+    ctx.fillText(`${profileData.to.name} (${profileData.to.height}ft)`, left + plotW - 50, top - 10);
+
+    // Distance labels on X axis
+    ctx.fillStyle = "#888";
+    ctx.font = "11px Arial";
+    for(let i = 0; i <= 5; i++){
+      const d = (maxDist / 5) * i;
+      const x = left + (d / maxDist) * plotW;
+      ctx.fillText(`${d.toFixed(2)}mi`, x, top + plotH + 20);
+    }
+
+    // Title
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px Arial";
+    ctx.textAlign = "center";
+    const signal = calcPower(maxDist);
+    const statusText = blocked ? "⛰️ LOS BLOCKED" : `✅ LOS Clear | ${signal.toFixed(0)} dBm`;
+    ctx.fillText(`${profileData.totalDist.toFixed(2)} mi | ${statusText}`, W / 2, H - 5);
+
+  }, [showProfile, profileData]);
 
 function redraw(){
     setNodeVersion(v => v + 1);
@@ -1224,6 +1403,13 @@ setNodeVersion(v => v + 1);
             Save Changes
           </button>
 
+<button
+            onClick={() => { if(selectedNode) generateProfile(selectedNode); }}
+            style={{width:"100%", marginBottom:6, background:"#2196F3", color:"white", border:"none", padding:"6px", cursor:"pointer"}}
+          >
+            📊 Terrain Profile
+          </button>
+
         </div>
       )}
 
@@ -1304,7 +1490,45 @@ onClick={() => {
 
     </div>
   </div>          {/* ✅ ADD THIS LINE — closes the sidebar */}
+{/* ✅ TERRAIN PROFILE POPUP */}
+      {showProfile && profileData && (
+        <div style={{
+          position:"absolute",
+          top:"10%",
+          left:"15%",
+          width:"70%",
+          background:"#1a1a2e",
+          border:"2px solid #00bcd4",
+          borderRadius:8,
+          zIndex:2000,
+          padding:10
+        }}>
+          <button
+            onClick={() => setShowProfile(false)}
+            style={{
+              position:"absolute",
+              top:8,
+              right:8,
+              background:"red",
+              color:"white",
+              border:"none",
+              borderRadius:"50%",
+              width:28,
+              height:28,
+              cursor:"pointer",
+              fontWeight:"bold",
+              fontSize:14
+            }}
+          >✕</button>
 
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={350}
+            style={{width:"100%", height:"auto"}}
+          />
+        </div>
+      )}
     {/* MAP */}
     <div ref={containerRef} style={{flex:1}}/>
 
