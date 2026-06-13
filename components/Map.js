@@ -527,8 +527,11 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-        const linkRange = (b.type === "lra") ? 3 : a.range;
+
+       
+const linkRange = (b.type === "lra") ? 3 : a.range;
       if (d > linkRange) continue;
+
 
 
       const los = await checkLOS(a, b, a.height, b.height);
@@ -688,26 +691,19 @@ async function optimizeExisting(){
   let hasGateway = nodesRef.current.some(n => n.type === "gateway");
 
   // ✅ If no gateway, find the best one (closest to center)
-  if(!hasGateway){
-
-    let avgLat = 0;
-    let avgLng = 0;
-
-    for(const n of nodesRef.current){
-      avgLat += n.lat;
-      avgLng += n.lng;
-    }
-
-    avgLat /= nodesRef.current.length;
-    avgLng /= nodesRef.current.length;
+ if(!hasGateway){
 
     let bestNode = nodesRef.current[0];
-    let bestDist = Infinity;
+    let bestCount = -1;
 
     for(const n of nodesRef.current){
-      const d = distance(n, { lng: avgLng, lat: avgLat });
-      if(d < bestDist){
-        bestDist = d;
+      let count = 0;
+      for(const other of nodesRef.current){
+        if(other === n) continue;
+        if(distance(n, other) <= 3) count++;
+      }
+      if(count > bestCount){
+        bestCount = count;
         bestNode = n;
       }
     }
@@ -861,36 +857,28 @@ async function autoOptimizeNetwork(){
   const recs = [];
 
   // ✅ Primary gateway
-  // ✅ FIND CENTER POINT
-let avgLat = 0;
-let avgLng = 0;
-
-for (const r of importedData) {
-  avgLat += r.Latitude;
-  avgLng += r.Longitude;
-}
-
-avgLat /= importedData.length;
-avgLng /= importedData.length;
-
-map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
-
-// ✅ FIND NODE CLOSEST TO CENTER → BEST GATEWAY
+ // ✅ FIND NODE WITH MOST NEIGHBORS → BEST GATEWAY
 let gateway = importedData[0];
-let bestDist = Infinity;
+let bestCount = -1;
 
 for (const r of importedData) {
-  const d = distance(
-    { lng: avgLng, lat: avgLat },
-    { lng: r.Longitude, lat: r.Latitude }
-  );
-
-  if (d < bestDist) {
-    bestDist = d;
+  let count = 0;
+  for (const other of importedData) {
+    if (other === r) continue;
+    const d = distance(
+      { lng: r.Longitude, lat: r.Latitude },
+      { lng: other.Longitude, lat: other.Latitude }
+    );
+    if (d <= 3) count++;
+  }
+  if (count > bestCount) {
+    bestCount = count;
     gateway = r;
   }
 }
 
+// ✅ Center map on gateway
+map.flyTo({ center: [gateway.Longitude, gateway.Latitude], zoom: 13 });
 // ✅ PLACE GATEWAY
 addNode(map, gateway.Longitude, gateway.Latitude, "gateway", gateway.Name, true);
  const placedNodes = [];
