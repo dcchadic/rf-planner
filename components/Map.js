@@ -1073,11 +1073,8 @@ a.recommendedHeight = targetHeight;
 
     // ✅ FINAL RECOMMENDATION LOGIC
 
-    // No node in range at all
+   // No node in range at all — skip (already shown as Single Modem on map)
     if(bestSignal === -999){
-      recs.push({
-        text: `📶 ${a.name.toUpperCase()}: Out of range — recommend Single Modem`
-      });
 
     } else if(terrainBlocked || weakSignal){
 
@@ -1301,25 +1298,7 @@ async function optimizeExisting(){
     }
   }
 
- // ✅ Single Modem check
-  for(const node of nodesRef.current){
-
-    if(node.type === "gateway") continue;
-
-    let canConnect = false;
-
-    for(const b of nodesRef.current){
-      if(b === node) continue;
-
-      const d = distance(node, b);
-
-      if(d < 1.5){
-        canConnect = true;
-        break;
-      }
-    }
-
-    if(!canConnect){
+     if(!canConnect){
       recs.push({
         text: `📶 ${node.name.toUpperCase()}: Add Single Modem`
       });
@@ -1436,29 +1415,7 @@ for(let pass = 0; pass < 10; pass++){
   await computeLinks();
 }
 
-  // ✅ SINGLE MODEM CHECK
-  placedNodes.forEach(node => {
-
-    let canConnect = false;
-
-    for(const b of nodesRef.current){
-
-      const d = distance(
-        { lng: node.Longitude, lat: node.Latitude },
-        { lng: b.lng, lat: b.lat }
-      );
-
-      if(d < 1.5){
-        canConnect = true;
-        break;
-      }
-    }
-
-    if(!canConnect){
-      recs.push({
-        text: `📶 ${node.Name.toUpperCase()}: Add Single Modem`
-      });
-    }
+     }
 
   });
 
@@ -1474,18 +1431,6 @@ for (const node of nodesRef.current) {
 
   if (!reachesGateway) {
     disconnectedCount++;
-  }
-}
-if (disconnectedCount <= 6 && disconnectedCount > 0) {
-  for (const node of nodesRef.current) {
-    if (node.type === "gateway") continue;
-    const path = getPath(node);
-    const reachesGateway = path.some(n => n.type === "gateway");
-    if (!reachesGateway) {
-      recs.push({
-        text: `📶 ${node.name.toUpperCase()}: Cannot reach gateway — recommend Single Modem`
-      });
-    }
   }
 }
 
