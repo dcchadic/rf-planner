@@ -47,6 +47,11 @@ const [nodeVersion, setNodeVersion] = useState(0);
 
     mapRef.current = map;
 
+map.addControl(new mapboxgl.ScaleControl({
+      maxWidth: 200,
+      unit: "imperial"
+    }), "bottom-right");
+
     map.on("click",(e)=>{
       addNode(map, e.lngLat.lng, e.lngLat.lat, modeRef.current);
     });
@@ -1160,8 +1165,11 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     editType === "gateway" ? "blue" :
     editType === "lra" ? "orange" : "green";
 
+  
+setNodeVersion(v => v + 1);
   redraw();
 }}
+
 
 
             style={{width:"100%", marginBottom:6}}
