@@ -765,10 +765,7 @@ async function optimizeExisting(){
       let inRange = false;
       for(const g of nodesRef.current){
         if(g.type !== "gateway" && g.type !== "lra") continue;
-       
- if(distance(node, g) <= 3){
-      if(distance(node, g) <= upgradeRange){
-
+        if(distance(node, g) <= 3){
           inRange = true;
           break;
         }
@@ -932,16 +929,13 @@ for(let pass = 0; pass < 10; pass++){
   for(const node of disconnected){
 
     let inRange = false;
-    for(const g of nodesRef.current){
-      if(g.type !== "gateway" && g.type !== "lra") continue;
-     
-  if(distance(node, g) <= 3){
-      if(distance(node, g) <= upgradeRange){
-
-        inRange = true;
-        break;
+   for(const g of nodesRef.current){
+        if(g.type !== "gateway" && g.type !== "lra") continue;
+        if(distance(node, g) <= 3){
+          inRange = true;
+          break;
+        }
       }
-    }
 
     if(!inRange) continue;
 
