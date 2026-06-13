@@ -147,13 +147,16 @@ el.style.height = "14px";
 el.style.borderRadius = "50%";
 el.style.background =
   type==="gateway" ? "blue" :
-  type==="lra" ? "orange" : "green";
+  type==="lra" ? "orange" :
+  type==="single" ? "black" : "green";
 
 const node = {
   lng, lat, type,
   markerElement: el,
-  height: customHeight || (type==="gateway"?15:type==="lra"?10:5),
-  range: type==="gateway"?3:type==="lra"?3:0.75,
+  
+ height: customHeight || (type==="gateway"?15:type==="lra"?10:5),
+  range: type==="gateway"?3:type==="lra"?3:type==="single"?0:0.75,
+
   name: name || `${type}-${nodesRef.current.length+1}`,
   elevation: null,
   blocked: false,
@@ -214,7 +217,10 @@ async function computeLinks(){
 
   for (const a of sortedNodes) {
 
-    if (a.type === "gateway") continue;
+ 
+ if (a.type === "gateway") continue;
+    if (a.type === "single") continue;
+
 
   let clearGateway   = null;  let clearGatewayDist   = Infinity;
     let clearLRA       = null;  let clearLRADist       = Infinity;
@@ -307,7 +313,7 @@ for (const n of nodesRef.current){
       const path = getPath(n);
       const reaches = path.some(p => p.type === "gateway");
       n.outOfRange = !reaches;
-      if (n.outOfRange && n.markerElement){
+      if ((n.outOfRange || n.type === "single") && n.markerElement){
         n.markerElement.style.background = "black";
       } else if (n.markerElement){
         n.markerElement.style.background =
@@ -337,7 +343,9 @@ console.log("LINKS:", linksRef.current);
         type: "Feature",
         geometry: { type: "Point", coordinates: [nd.lng, nd.lat] },
         properties: {
-          text: `${nd.name}\n${nd.height}ft AGL | Elev ${nd.elevation || '...'}ft`
+          text: nd.type === "single"
+            ? `${nd.name}\nElev ${nd.elevation || '...'}ft`
+            : `${nd.name}\n${nd.height}ft AGL | Elev ${nd.elevation || '...'}ft`
         }
       });
     }
@@ -989,7 +997,8 @@ async function analyzeNetwork(){
 
   for(const a of nodesRef.current){
 
-    if(a.type === "gateway") continue;
+   if(a.type === "gateway") continue;
+    if(a.type === "single") continue;
 
     const path = getPath(a);
     const reachesGateway = path.some(n => n.type === "gateway");
@@ -1359,11 +1368,13 @@ const gwLat = gateway.Latitude + (60 / 364000);
 const gwLng = gateway.Longitude;
 addNode(map, gwLng, gwLat, "gateway", "GATEWAY-1", true);
 
+ const placedNodes = [];
+
  for (let i = 0; i < importedData.length; i++) {
 
   const r = importedData[i];
 
-   placedNodes.push(r);
+  placedNodes.push(r);
 
   addNode(map, r.Longitude, r.Latitude, "sra", r.Name, true);
 }
@@ -1554,13 +1565,39 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       {/* ✅ Mode buttons */}
   
 <div style={{padding:12}}>
-  <button onClick={()=>setMode("gateway")}>Gateway</button>
-  <button onClick={()=>setMode("lra")}>LRA</button>
-  <button onClick={()=>setMode("sra")}>SRA</button>
+ <div style={{display:"flex", gap:4}}>
+    <button
+      onClick={()=>setMode("gateway")}
+      style={{
+        flex:1, padding:"6px", border:"none", cursor:"pointer", color:"white",
+        background: mode === "gateway" ? "#0000cc" : "blue", fontWeight:"bold", fontSize:11
+      }}
+    >🔵 Gateway</button>
+    <button
+      onClick={()=>setMode("lra")}
+      style={{
+        flex:1, padding:"6px", border:"none", cursor:"pointer", color:"white",
+        background: mode === "lra" ? "#cc7a00" : "orange", fontWeight:"bold", fontSize:11
+      }}
+    >🟠 LRA</button>
+    <button
+      onClick={()=>setMode("sra")}
+      style={{
+        flex:1, padding:"6px", border:"none", cursor:"pointer", color:"white",
+        background: mode === "sra" ? "#2e7d32" : "green", fontWeight:"bold", fontSize:11
+      }}
+    >🟢 SRA</button>
+    <button
+      onClick={()=>setMode("single")}
+      style={{
+        flex:1, padding:"6px", border:"none", cursor:"pointer", color:"white",
+        background: mode === "single" ? "#333" : "black", fontWeight:"bold", fontSize:11
+      }}
+    >⚫ Single</button>
+  </div>
   <button onClick={optimizeExisting} style={{marginTop:6, width:"100%", background:"#4CAF50", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
     ⚡ Auto-Optimize
-  </button>
-<button onClick={() => {
+  </button><button onClick={() => {
     nodesRef.current.forEach(n => { if(n.marker) n.marker.remove(); });
     nodesRef.current = [];
     linksRef.current = {};
@@ -1657,6 +1694,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
             <option value="gateway">Gateway</option>
             <option value="lra">LRA</option>
             <option value="sra">SRA</option>
+            <option value="single">Single Modem</option>
           </select>
 
 <div style={{marginBottom:6}}>
@@ -1686,15 +1724,20 @@ return (  <div style={{display:"flex",height:"100vh"}}>
     selectedNode.height = editHeight;
     selectedNode.range = 3;
   } 
+ else if(editType === "single"){
+    selectedNode.height = editHeight;
+    selectedNode.range = 0;
+  }
   else {
     selectedNode.height = editHeight;
     selectedNode.range = 0.75;
   }
 
   // ✅ update marker color
-  selectedNode.markerElement.style.background =
+ selectedNode.markerElement.style.background =
     editType === "gateway" ? "blue" :
-    editType === "lra" ? "orange" : "green";
+    editType === "lra" ? "orange" :
+    editType === "single" ? "black" : "green";
 
 saveSnapshot();
   setNodeVersion(v => v + 1);
@@ -1758,7 +1801,7 @@ saveSnapshot();
     🔵 {nodesRef.current.filter(n => n.type === "gateway").length} Gateway
     {" | "}🟠 {nodesRef.current.filter(n => n.type === "lra").length} LRA
     {" | "}🟢 {nodesRef.current.filter(n => n.type === "sra").length} SRA
-    {" | "}⚫ {nodesRef.current.filter(n => n.outOfRange).length} Single Modem
+    {" | "}⚫ {nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length} Single Modem
   </div>
 
  
@@ -1767,7 +1810,7 @@ saveSnapshot();
       
 <span style={{
   color:
-    n.outOfRange ? "black" :
+    n.outOfRange || n.type==="single" ? "black" :
     n.type==="gateway" ? "blue" :
     n.type==="lra" ? "orange" : "green",
   cursor: "pointer",
@@ -1783,7 +1826,7 @@ setEditHeight(n.height);
   }}
 
 >
-  {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
+  {n.name} ({n.type.toUpperCase()}) {n.type !== "single" ? `${n.recommendedHeight || n.height} ft` : ""}
 </span>
 {n.elevation !== null && (
   <span style={{color:"#888", fontSize:11}}>
