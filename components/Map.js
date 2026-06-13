@@ -1207,11 +1207,16 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 <span style={{
   color:
     n.type==="gateway" ? "blue" :
-    n.type==="lra" ? "orange" : "green"
-}}>
+    n.type==="lra" ? "orange" : "green",
+  cursor: "pointer",
+  textDecoration: "underline"
+}}
+  onClick={() => {
+    mapRef.current.flyTo({ center: [n.lng, n.lat], zoom: 15 });
+  }}
+>
   {n.name} ({n.type.toUpperCase()}) {n.recommendedHeight || n.height} ft
 </span>
-
 {n.elevation !== null && (
   <span style={{color:"#888", fontSize:11}}>
     {" "}| Elev: {n.elevation}ft
