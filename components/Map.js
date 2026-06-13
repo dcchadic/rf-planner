@@ -30,9 +30,13 @@ const [importedData, setImportedData] = useState([]);
 const [editType,setEditType] = useState("");
 const [editHeight, setEditHeight] = useState(0);
 const [nodeVersion, setNodeVersion] = useState(0);
+
 const [showProfile, setShowProfile] = useState(false);
 const [profileData, setProfileData] = useState(null);
 const canvasRef = useRef(null);
+const [profileFromHeight, setProfileFromHeight] = useState(0);
+const [profileToHeight, setProfileToHeight] = useState(0);
+
 
 
   const modeRef = useRef(mode);
@@ -521,6 +525,8 @@ map.addLayer({
       points,
       totalDist
     });
+    setProfileFromHeight(node.height);
+    setProfileToHeight(target.height);
     setShowProfile(true);
   }
 // ✅ DRAW TERRAIN PROFILE ON CANVAS
@@ -595,8 +601,10 @@ map.addLayer({
     ctx.stroke();
 
     // Antenna heights
-    const fromElev = points[0].elev + profileData.from.height;
-    const toElev = points[points.length - 1].elev + profileData.to.height;
+    
+const fromElev = points[0].elev + profileFromHeight;
+    const toElev = points[points.length - 1].elev + profileToHeight;
+
     const fromGroundY = top + plotH - ((points[0].elev - minElev) / (maxElev - minElev)) * plotH;
     const toGroundY = top + plotH - ((points[points.length-1].elev - minElev) / (maxElev - minElev)) * plotH;
     const fromTipY = top + plotH - ((fromElev - minElev) / (maxElev - minElev)) * plotH;
@@ -649,9 +657,9 @@ map.addLayer({
     ctx.fillStyle = "#00bcd4";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "left";
-    ctx.fillText(`${profileData.from.name} (${profileData.from.height}ft)`, left + 5, top + 15);
+    ctx.fillText(`${profileData.from.name} (${profileFromHeight}ft)`, left + 5, top + 15);
     ctx.textAlign = "right";
-    ctx.fillText(`${profileData.to.name} (${profileData.to.height}ft)`, left + plotW - 5, top + 15);
+    ctx.fillText(`${profileData.to.name} (${profileToHeight}ft)`, left + plotW - 5, top + 15);
 
 
     // Distance labels on X axis
@@ -671,7 +679,28 @@ map.addLayer({
     const statusText = blocked ? "⛰️ LOS BLOCKED" : `✅ LOS Clear | ${signal.toFixed(0)} dBm`;
     ctx.fillText(`${profileData.totalDist.toFixed(2)} mi | ${statusText}`, W / 2, H - 5);
 
-  }, [showProfile, profileData]);
+    // Recommended height
+    if(blocked){
+      let maxBlock = 0;
+      for(let i = 0; i < points.length; i++){
+        const t = i / (points.length - 1);
+        const losAtPoint = fromElev + (toElev - fromElev) * t;
+        const diff = points[i].elev - losAtPoint;
+        if(diff > maxBlock) maxBlock = diff;
+      }
+      const recHeight = Math.ceil(maxBlock + 5);
+      ctx.fillStyle = "#ff5555";
+      ctx.font = "bold 16px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`⚠️ Increase height by ~${recHeight}ft to clear obstruction`, W / 2, top + 15);
+    } else {
+      ctx.fillStyle = "#4CAF50";
+      ctx.font = "bold 16px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`✅ Clear LOS — no height change needed`, W / 2, top + 15);
+    }
+
+   }, [showProfile, profileData, profileFromHeight, profileToHeight]);
 
 function redraw(){
     setNodeVersion(v => v + 1);
@@ -1541,6 +1570,51 @@ setEditHeight(n.height);
               fontSize:14
             }}
           >✕</button>
+
+          <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
+            <div>
+              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
+                {profileData.from.name} Height (ft):
+              </label>
+              <input
+                type="number"
+                value={profileFromHeight}
+                onChange={e => {
+                  const h = Number(e.target.value);
+                  setProfileFromHeight(h);
+                }}
+                style={{width:60, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
+              />
+              <button
+                onClick={() => {
+                  profileData.from.height = profileFromHeight;
+                  redraw();
+                }}
+                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
+              >Apply</button>
+            </div>
+            <div>
+              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
+                {profileData.to.name} Height (ft):
+              </label>
+              <input
+                type="number"
+                value={profileToHeight}
+                onChange={e => {
+                  const h = Number(e.target.value);
+                  setProfileToHeight(h);
+                }}
+                style={{width:60, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
+              />
+              <button
+                onClick={() => {
+                  profileData.to.height = profileToHeight;
+                  redraw();
+                }}
+                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
+              >Apply</button>
+            </div>
+          </div>
 
           <canvas
             ref={canvasRef}
