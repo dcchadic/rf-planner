@@ -183,10 +183,12 @@ async function computeLinks(){
 
     if (a.type === "gateway") continue;
 
-   let clearGateway   = null;  let clearGatewayDist   = Infinity;
-      let clearMesh      = null;  let clearMeshDist      = Infinity;
-      let blockedGateway = null;  let blockedGatewayDist = Infinity;
-      let blockedMesh    = null;  let blockedMeshDist    = Infinity;
+  let clearGateway   = null;  let clearGatewayDist   = Infinity;
+    let clearLRA       = null;  let clearLRADist       = Infinity;
+    let clearSRA       = null;  let clearSRADist       = Infinity;
+    let blockedGateway = null;  let blockedGatewayDist = Infinity;
+    let blockedLRA     = null;  let blockedLRADist     = Infinity;
+    let blockedSRA     = null;  let blockedSRADist     = Infinity;
 
     for (const b of nodesRef.current) {
 
@@ -195,25 +197,20 @@ async function computeLinks(){
       const d = distance(a, b);
       
    
-let linkRange;
-    if (b.type === "lra") {
-      linkRange = b.range;
-    } else if (b.type === "gateway" && a.type !== "sra") {
-      linkRange = b.range;
-    } else {
-      linkRange = a.range;
-    }
-    if (d > linkRange) continue;
+
+const linkRange = (b.type === "lra") ? 3 : a.range;
+      if (d > linkRange) continue;
 
       const isGateway = b.type === "gateway";
 
-      let hasMeshPath = false;
+     let hasMeshPath = false;
 
       if (!isGateway) {
         if (b.type !== "sra" && b.type !== "lra") continue;
 
-        const next = linksRef.current[b.name];
-        if (next && (next.type === "gateway" || next.type === "lra" || linksRef.current[next.name])) {
+        const bPath = getPath(b);
+        const bReachesGateway = bPath.some(n => n.type === "gateway");
+        if (bReachesGateway) {
           hasMeshPath = true;
         }
       }
@@ -222,14 +219,18 @@ let linkRange;
 
       const los = await checkLOS(a, b, a.height, b.height);
 
-     if      (isGateway  && los.clear  && d < clearGatewayDist)   { clearGateway   = b; clearGatewayDist   = d; }
-        else if (isGateway  && !los.clear && d < blockedGatewayDist) { blockedGateway = b; blockedGatewayDist = d; }
-        else if (!isGateway && los.clear  && d < clearMeshDist)      { clearMesh      = b; clearMeshDist      = d; }
-        else if (!isGateway && !los.clear && d < blockedMeshDist)    { blockedMesh    = b; blockedMeshDist    = d; }
+     const isLRA = b.type === "lra";
+
+      if      (isGateway && los.clear  && d < clearGatewayDist)          { clearGateway   = b; clearGatewayDist   = d; }
+      else if (isGateway && !los.clear && d < blockedGatewayDist)        { blockedGateway = b; blockedGatewayDist = d; }
+      else if (isLRA     && los.clear  && d < clearLRADist)              { clearLRA       = b; clearLRADist       = d; }
+      else if (isLRA     && !los.clear && d < blockedLRADist)            { blockedLRA     = b; blockedLRADist     = d; }
+      else if (!isGateway && !isLRA && los.clear  && d < clearSRADist)   { clearSRA       = b; clearSRADist       = d; }
+      else if (!isGateway && !isLRA && !los.clear && d < blockedSRADist) { blockedSRA     = b; blockedSRADist     = d; }
 
     }
 
-    const best = clearGateway || clearMesh || blockedGateway || blockedMesh || null;
+    const best = clearGateway || clearLRA || clearSRA || blockedGateway || blockedLRA || blockedSRA || null;
 
     if (best) {
       linksRef.current[a.name] = best;
@@ -526,15 +527,8 @@ async function analyzeNetwork(){
       if(a === b) continue;
 
       const d = distance(a,b);
-         let linkRange;
-    if (b.type === "lra") {
-      linkRange = b.range;
-    } else if (b.type === "gateway" && a.type !== "sra") {
-      linkRange = b.range;
-    } else {
-      linkRange = a.range;
-    }
-    if (d > linkRange) continue;
+        const linkRange = (b.type === "lra") ? 3 : a.range;
+      if (d > linkRange) continue;
 
 
       const los = await checkLOS(a, b, a.height, b.height);
