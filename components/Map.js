@@ -2006,7 +2006,10 @@ for(let pass = 0; pass < 10; pass++){
     }
   }
 
-  if(!bestCandidate) break;
+  if(!bestCandidate){
+    // If only blocked SRAs remain (not truly disconnected), stop the loop
+    break;
+  }
 
   bestCandidate.type = "lra";
   bestCandidate.range = 3;
@@ -2074,8 +2077,10 @@ for(let pass = 0; pass < 10; pass++){
   }
   await computeLinks();
 
-  // ✅ IMPROVED GATEWAY LOGIC
+ // ✅ IMPROVED GATEWAY LOGIC
+  await computeLinks();
 let disconnectedCount = 0;
+console.log("GATEWAY CHECK - computing disconnected count...");
 
 for (const node of nodesRef.current) {
 
