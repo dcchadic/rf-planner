@@ -1566,6 +1566,7 @@ async function optimizeExisting(){
   if(!nodesRef.current.length) return;
 
   const recs = [];
+try {
 
   // ✅ Check if there's already a gateway
   let hasGateway = nodesRef.current.some(n => n.type === "gateway");
@@ -1710,7 +1711,11 @@ async function optimizeExisting(){
     }
   }
 
-       // ✅ Redraw and show results
+      } catch(e) {
+    console.log("Optimize error:", e);
+  }
+
+  // ✅ Redraw and show results
   draw();
   setRecommendations(prev => [...prev, ...recs]);
 }
@@ -1723,6 +1728,7 @@ async function autoOptimizeNetwork(){
   const map = mapRef.current;
 
   const recs = [];
+try {
 
   // ✅ Primary gateway
  // ✅ FIND NODE WITH MOST NEIGHBORS → BEST GATEWAY
@@ -1863,9 +1869,12 @@ if (disconnectedCount > 6) {
   }
 }
 
-// ✅ ✅ NOW FINISH THE FUNCTION
-try { await draw(); } catch(e) { console.log("Draw error:", e); }
+} catch(e) {
+    console.log("Auto-optimize error:", e);
+  }
 
+// ✅ ✅ NOW FINISH THE FUNCTION
+draw();
 setRecommendations(prev => [...prev, ...recs]);
 setShowOptimizePrompt(false);
 setNodeVersion(v => v + 1);
