@@ -2248,7 +2248,7 @@ saveSnapshot();
 <button onClick={exportExcel} style={{width:"100%", marginBottom:6, background:"#FF9800", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
         📊 Export to Excel
       </button>
-      <button onClick={exportBundle} style={{width:"100%", marginBottom:6, background:"#9C27B0", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
+     <button onClick={() => exportBundle()} style={{width:"100%", marginBottom:6, background:"#9C27B0", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
         📦 Export All (Zip)
       </button>
      <label style={{
