@@ -1158,6 +1158,81 @@ async function optimizeHeights(){
       }
     }
   }
+async function rescueDisconnected(){
+    // Find all disconnected non-single nodes
+    let disconnected = [];
+    for(const node of nodesRef.current){
+      if(node.type === "gateway") continue;
+      if(node.type === "single") continue;
+      const path = getPath(node);
+      const reaches = path.some(n => n.type === "gateway");
+      if(!reaches) disconnected.push(node);
+    }
+
+    if(disconnected.length === 0) return;
+
+    // For each disconnected node, try to find a bridge
+    for(const disc of disconnected){
+
+      // Find any connected node within 3mi that could bridge
+      let bestBridge = null;
+      let bestBridgeH = Infinity;
+
+      for(const other of nodesRef.current){
+        if(other === disc) continue;
+        if(other.type === "single") continue;
+
+        const d = distance(disc, other);
+        if(d > 3) continue;
+
+        // Check if other is connected OR is the gateway
+        const otherPath = getPath(other);
+        const otherConnected = other.type === "gateway" || otherPath.some(n => n.type === "gateway");
+        if(!otherConnected) continue;
+
+        // Test if LOS can be cleared within height limits
+        for(let testH = 10; testH <= 30; testH += 5){
+          const los = await checkLOS(disc, other, testH, other.height);
+          if(los.clear){
+            if(testH < bestBridgeH){
+              bestBridgeH = testH;
+              bestBridge = other;
+            }
+            break;
+          }
+        }
+      }
+
+      if(bestBridge){
+        // Upgrade the disconnected node to LRA
+        disc.type = "lra";
+        disc.height = bestBridgeH;
+        disc.range = 3;
+        if(disc.markerElement){
+          disc.markerElement.style.background = "orange";
+        }
+
+        // If the bridge node is an SRA, upgrade it too
+        if(bestBridge.type === "sra"){
+          // Find min height for bridge side
+          for(let testH = 10; testH <= 30; testH += 5){
+            const los = await checkLOS(bestBridge, disc, testH, disc.height);
+            if(los.clear){
+              bestBridge.type = "lra";
+              bestBridge.height = testH;
+              bestBridge.range = 3;
+              if(bestBridge.markerElement){
+                bestBridge.markerElement.style.background = "orange";
+              }
+              break;
+            }
+          }
+        }
+
+        await computeLinks();
+      }
+    }
+  }
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
@@ -1613,6 +1688,10 @@ async function optimizeExisting(){
   await optimizeHeights();
   await computeLinks();
 
+  // ✅ Rescue disconnected nodes
+  await rescueDisconnected();
+  await computeLinks();
+
   // ✅ Check if anything still can't connect
   for(const node of nodesRef.current){
 
@@ -1744,8 +1823,11 @@ for(let pass = 0; pass < 10; pass++){
   await optimizeHeights();
   await computeLinks();
 
-  // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
-let disconnectedCount = 0;
+  // ✅ Rescue disconnected nodes
+  await rescueDisconnected();
+  await computeLinks();
+
+  // ✅ IMPROVED GATEWAY LOGIClet disconnectedCount = 0;
 
 for (const node of nodesRef.current) {
 
