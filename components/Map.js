@@ -1685,9 +1685,15 @@ async function optimizeExisting(){
   await optimizeHeights();
   await computeLinks();
 
-  // ✅ Rescue disconnected nodes
-  await rescueDisconnected();
-  await computeLinks();
+  
+ // ✅ Rescue disconnected nodes
+  try {
+    await rescueDisconnected();
+    await computeLinks();
+  } catch(e) {
+    console.log("Rescue pass error:", e);
+  }
+
 
   // ✅ Check if anything still can't connect
   for(const node of nodesRef.current){
@@ -1820,9 +1826,15 @@ for(let pass = 0; pass < 10; pass++){
   await optimizeHeights();
   await computeLinks();
 
-  // ✅ Rescue disconnected nodes
-  await rescueDisconnected();
-  await computeLinks();
+  
+ // ✅ Rescue disconnected nodes
+  try {
+    await rescueDisconnected();
+    await computeLinks();
+  } catch(e) {
+    console.log("Rescue pass error:", e);
+  }
+
 
   // ✅ IMPROVED GATEWAY LOGIClet disconnectedCount = 0;
 
