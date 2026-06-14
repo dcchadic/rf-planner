@@ -2077,36 +2077,7 @@ for(let pass = 0; pass < 10; pass++){
   }
   await computeLinks();
 
- // ✅ IMPROVED GATEWAY LOGIC
-  await computeLinks();
-let disconnectedCount = 0;
-console.log("GATEWAY CHECK - computing disconnected count...");
-
-for (const node of nodesRef.current) {
-
-  if (node.type === "gateway") continue;
-
-  const path = getPath(node);
-  const reachesGateway = path.some(n => n.type === "gateway");
-
-  if (!reachesGateway) {
-    disconnectedCount++;
-  }
-}
-
-if (disconnectedCount > 6) {
-  let candidate = null;
-  for (const node of nodesRef.current) {
-    if (node.type === "gateway") continue;
-    const path = getPath(node);
-    if (!path.some(n => n.type === "gateway")){ candidate = node; break; }
-  }
-  if (candidate) {
-    addNode(map, candidate.lng, candidate.lat, "gateway", "GATEWAY-2", true);
-    recs.push({ text: `📡 Secondary Gateway added (needed for connectivity)` });
-  }
-}
-
+ 
 } catch(e) {
     console.log("Auto-optimize error:", e);
   }
