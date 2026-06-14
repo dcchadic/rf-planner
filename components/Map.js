@@ -376,11 +376,15 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
 
     const path=[start];
     let current=start;
+    const visited = new Set([start.name]);
 
-    for(let i=0;i<10;i++){
+    for(let i=0;i<20;i++){
 
       const next = linksRef.current[current.name];
       if(!next) break;
+
+      if(visited.has(next.name)) break;
+      visited.add(next.name);
 
       path.push(next);
       if(next.type==="gateway") break;
