@@ -45,7 +45,7 @@ const [profileToType, setProfileToType] = useState("sra");
 const [measureMode, setMeasureMode] = useState(false);
 const measurePoints = useRef([]);
 const measureMarkersRef = useRef([]);
-
+const skipNextClick = useRef(false);
 
 
   const modeRef = useRef(mode);
@@ -70,13 +70,16 @@ const measureMarkersRef = useRef([]);
     mapRef.current = map;
 
 map.on("click",(e)=>{
+      if(skipNextClick.current){
+        skipNextClick.current = false;
+        return;
+      }
       if(measureModeRef.current){
         handleMeasureClick(e.lngLat.lng, e.lngLat.lat);
         return;
       }
       addNode(map, e.lngLat.lng, e.lngLat.lat, modeRef.current);
     });
-
 
     return ()=> map.remove();
 
@@ -550,11 +553,7 @@ signal > -100 ? "orange" :
 // ✅ Click line to open terrain profile
         const clickP1 = p1;
         const clickP2 = p2;
-        map.on("click", lineId, (e) => {
-          e.preventDefault();
-          e.originalEvent.stopPropagation();
-          generateProfile(clickP1, clickP2);
-        });
+         map.on("click", lineId, (e) => {
 
         // ✅ Pointer cursor on hover
         map.on("mouseenter", lineId, () => {
@@ -2088,7 +2087,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
           generateMeasureProfile(p1, p2);
         }
       }}
-      style={{flex:1, background:"#2196F3", color:"white", padding:"6px", border:"none", cursor:"pointer"}}
+      style={{flex:1, background:"#8B7355", color:"white", padding:"6px", border:"none", cursor:"pointer"}}
     >
       📊 Profile
     </button>
@@ -2210,7 +2209,7 @@ saveSnapshot();
 
 <button
             onClick={() => { if(selectedNode) generateProfile(selectedNode); }}
-            style={{width:"100%", marginBottom:6, background:"#2196F3", color:"white", border:"none", padding:"6px", cursor:"pointer"}}
+            style={{width:"100%", marginBottom:6, background:"#8B7355", color:"white", border:"none", padding:"6px", cursor:"pointer"}}
           >
             📊 Terrain Profile
           </button>
