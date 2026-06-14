@@ -1370,13 +1370,13 @@ function exportExcel(){
     const url = window.location.href;
     folder.file("Open RF Planner.url", "[InternetShortcut]\nURL=" + url + "\n");
 
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
+  const content = await zip.generateAsync({ type: "blob" });
+    const blobUrl = URL.createObjectURL(content);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = blobUrl;
     a.download = folderName + ".zip";
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(blobUrl);
   }
 
  function loadNetwork(e){
