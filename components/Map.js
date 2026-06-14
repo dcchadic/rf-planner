@@ -560,7 +560,8 @@ signal > -100 ? "orange" :
           generateProfile(clickP1, clickP2);
         });
 
-        // ✅ Pointer cursor on hover        map.on("mouseenter", lineId, () => {
+        // ✅ Pointer cursor on hover        
+map.on("mouseenter", lineId, () => {
           map.getCanvas().style.cursor = "pointer";
         });
         map.on("mouseleave", lineId, () => {
