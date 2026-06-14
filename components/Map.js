@@ -600,7 +600,8 @@ map.addLayer({
       from: node,
       to: target,
       points,
-      totalDist
+      totalDist,
+      isMeasure: false
     });
    setProfileFromHeight(node.height);
     setProfileToHeight(target.height);
@@ -769,20 +770,65 @@ const fromElev = points[0].elev + profileFromHeight;
     const statusText = blocked ? "⛰️ LOS BLOCKED" : `✅ LOS Clear | ${signal.toFixed(0)} dBm`;
     ctx.fillText(`${profileData.totalDist.toFixed(2)} mi | ${statusText}`, W / 2, H - 5);
 
-    // Recommended height
+   // Recommended height
     if(blocked){
-      let maxBlock = 0;
-      for(let i = 0; i < points.length; i++){
-        const t = i / (points.length - 1);
-        const losAtPoint = fromElev + (toElev - fromElev) * t;
-        const diff = points[i].elev - losAtPoint;
-        if(diff > maxBlock) maxBlock = diff;
+
+      if(profileData.isMeasure){
+        // ✅ MEASURE PROFILE — show min height for each side
+        let minLeftH = profileFromHeight;
+        for(let testH = 0; testH <= 200; testH++){
+          let clear = true;
+          const testTip1 = points[0].elev + testH;
+          const testTip2 = points[points.length-1].elev + profileToHeight;
+          for(let i = 1; i < points.length - 1; i++){
+            const t = i / (points.length - 1);
+            const los = testTip1 + (testTip2 - testTip1) * t;
+            if(points[i].elev > los){ clear = false; break; }
+          }
+          if(clear){ minLeftH = testH; break; }
+        }
+
+        let minRightH = profileToHeight;
+        for(let testH = 0; testH <= 200; testH++){
+          let clear = true;
+          const testTip1 = points[0].elev + profileFromHeight;
+          const testTip2 = points[points.length-1].elev + testH;
+          for(let i = 1; i < points.length - 1; i++){
+            const t = i / (points.length - 1);
+            const los = testTip1 + (testTip2 - testTip1) * t;
+            if(points[i].elev > los){ clear = false; break; }
+          }
+          if(clear){ minRightH = testH; break; }
+        }
+
+        ctx.fillStyle = "#ff5555";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`⚠️ LOS BLOCKED`, W / 2, top + 14);
+
+        ctx.fillStyle = "#ffaa00";
+        ctx.font = "bold 12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText(`⬆️ Needs ${minLeftH}ft to clear`, left + 5, top + 30);
+        ctx.textAlign = "right";
+        ctx.fillText(`⬆️ Needs ${minRightH}ft to clear`, left + plotW - 5, top + 30);
+
+      } else {
+        // ✅ NODE PROFILE — show increase needed
+        let maxBlock = 0;
+        for(let i = 0; i < points.length; i++){
+          const t = i / (points.length - 1);
+          const losAtPoint = fromElev + (toElev - fromElev) * t;
+          const diff = points[i].elev - losAtPoint;
+          if(diff > maxBlock) maxBlock = diff;
+        }
+        const recHeight = Math.ceil(maxBlock + 5);
+        ctx.fillStyle = "#ff5555";
+        ctx.font = "bold 16px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`⚠️ Increase height by ~${recHeight}ft to clear obstruction`, W / 2, top + 30);
       }
-      const recHeight = Math.ceil(maxBlock + 5);
-      ctx.fillStyle = "#ff5555";
-      ctx.font = "bold 16px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(`⚠️ Increase height by ~${recHeight}ft to clear obstruction`, W / 2, top + 30);
+
     } else {
       ctx.fillStyle = "#4CAF50";
       ctx.font = "bold 16px Arial";
@@ -942,6 +988,66 @@ function handleMeasureClick(lng, lat){
     if(map.getSource("measure-line")) map.removeSource("measure-line");
     if(map.getLayer("measure-label")) map.removeLayer("measure-label");
     if(map.getSource("measure-label")) map.removeSource("measure-label");
+  }
+async function generateMeasureProfile(p1, p2){
+
+    // Orient west on left
+    let leftPt = p1;
+    let rightPt = p2;
+    if(p1.lng > p2.lng){
+      leftPt = p2;
+      rightPt = p1;
+    } else if(p1.lng === p2.lng && p1.lat < p2.lat){
+      leftPt = p2;
+      rightPt = p1;
+    }
+
+    const totalDist = distance(leftPt, rightPt);
+    const samples = Math.max(10, Math.round((totalDist * 5280) / 100));
+    const points = [];
+
+    for(let i = 0; i <= samples; i++){
+      const t = i / samples;
+      const lng = leftPt.lng + (rightPt.lng - leftPt.lng) * t;
+      const lat = leftPt.lat + (rightPt.lat - leftPt.lat) * t;
+      const elev = await getElevation(lng, lat);
+      const d = totalDist * t;
+      points.push({ dist: d, elev, lng, lat });
+    }
+
+    // Create fake nodes for the profile viewer
+    const fakeFrom = {
+      name: "Point A",
+      type: "sra",
+      height: 5,
+      range: 0.75,
+      lng: leftPt.lng,
+      lat: leftPt.lat,
+      markerElement: null
+    };
+
+    const fakeTo = {
+      name: "Point B",
+      type: "sra",
+      height: 5,
+      range: 0.75,
+      lng: rightPt.lng,
+      lat: rightPt.lat,
+      markerElement: null
+    };
+
+    setProfileData({
+      from: fakeFrom,
+      to: fakeTo,
+      points,
+      totalDist,
+      isMeasure: true
+    });
+    setProfileFromHeight(5);
+    setProfileToHeight(5);
+    setProfileFromType("sra");
+    setProfileToType("sra");
+    setShowProfile(true);
   }
 async function optimizeHeights(){
     for(const node of nodesRef.current){
@@ -1744,6 +1850,18 @@ return (  <div style={{display:"flex",height:"100vh"}}>
       style={{flex:1, background:"#666", color:"white", padding:"6px", border:"none", cursor:"pointer"}}
     >
       ✕ Clear
+    </button>
+    <button
+      onClick={() => {
+        if(measurePoints.current.length === 2){
+          const p1 = measurePoints.current[0];
+          const p2 = measurePoints.current[1];
+          generateMeasureProfile(p1, p2);
+        }
+      }}
+      style={{flex:1, background:"#2196F3", color:"white", padding:"6px", border:"none", cursor:"pointer"}}
+    >
+      📊 Profile
     </button>
   </div>
            <hr/>
