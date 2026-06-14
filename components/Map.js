@@ -5,6 +5,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import html2canvas from "html2canvas";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -1361,11 +1362,18 @@ function exportExcel(){
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     folder.file(folderName + "-report.xlsx", excelBuffer);
 
-    const map = mapRef.current;
-    const canvas = map.getCanvas();
-    const dataURL = canvas.toDataURL("image/png");
+   
+  // 2. Map screenshot (captures markers too)
+    const mapContainer = containerRef.current;
+    const screenshotCanvas = await html2canvas(mapContainer, {
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: null
+    });
+    const dataURL = screenshotCanvas.toDataURL("image/png");
     const imgData = dataURL.split(",")[1];
     folder.file(folderName + "-map.png", imgData, { base64: true });
+
 
     const url = window.location.href;
     folder.file("Open RF Planner.url", "[InternetShortcut]\nURL=" + url + "\n");
