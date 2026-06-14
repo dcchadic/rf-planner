@@ -995,6 +995,28 @@ async function analyzeNetwork(){
 
   const recs = [];
 
+  // ✅ Check CONNECTED nodes for blocked LOS on their actual path
+  for(const a of nodesRef.current){
+    if(a.type === "gateway") continue;
+    if(a.type === "single") continue;
+
+    const path = getPath(a);
+    const reachesGateway = path.some(n => n.type === "gateway");
+    if(!reachesGateway) continue;
+
+    for(let p = 0; p < path.length - 1; p++){
+      const p1 = path[p];
+      const p2 = path[p + 1];
+      if(p1.blocked){
+        recs.push({
+          text: `⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,
+          node: p1
+        });
+      }
+    }
+  }
+
+  // ✅ Check DISCONNECTED nodes
   for(const a of nodesRef.current){
 
    if(a.type === "gateway") continue;
