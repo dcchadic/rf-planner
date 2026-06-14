@@ -1159,80 +1159,77 @@ async function optimizeHeights(){
     }
   }
 async function rescueDisconnected(){
-    // Find all disconnected non-single nodes
-    let disconnected = [];
-    for(const node of nodesRef.current){
-      if(node.type === "gateway") continue;
-      if(node.type === "single") continue;
-      const path = getPath(node);
-      const reaches = path.some(n => n.type === "gateway");
-      if(!reaches) disconnected.push(node);
-    }
+    for(let attempt = 0; attempt < 5; attempt++){
 
-    if(disconnected.length === 0) return;
-
-    // For each disconnected node, try to find a bridge
-    for(const disc of disconnected){
-
-      // Find any connected node within 3mi that could bridge
-      let bestBridge = null;
-      let bestBridgeH = Infinity;
-
-      for(const other of nodesRef.current){
-        if(other === disc) continue;
-        if(other.type === "single") continue;
-
-        const d = distance(disc, other);
-        if(d > 3) continue;
-
-        // Check if other is connected OR is the gateway
-        const otherPath = getPath(other);
-        const otherConnected = other.type === "gateway" || otherPath.some(n => n.type === "gateway");
-        if(!otherConnected) continue;
-
-        // Test if LOS can be cleared within height limits
-        for(let testH = 10; testH <= 30; testH += 5){
-          const los = await checkLOS(disc, other, testH, other.height);
-          if(los.clear){
-            if(testH < bestBridgeH){
-              bestBridgeH = testH;
-              bestBridge = other;
-            }
-            break;
-          }
-        }
+      let disconnected = [];
+      for(const node of nodesRef.current){
+        if(node.type === "gateway") continue;
+        if(node.type === "single") continue;
+        const path = getPath(node);
+        const reaches = path.some(n => n.type === "gateway");
+        if(!reaches) disconnected.push(node);
       }
 
-      if(bestBridge){
-        // Upgrade the disconnected node to LRA
-        disc.type = "lra";
-        disc.height = bestBridgeH;
-        disc.range = 3;
-        if(disc.markerElement){
-          disc.markerElement.style.background = "orange";
-        }
+      if(disconnected.length === 0) return;
 
-        // If the bridge node is an SRA, upgrade it too
-        if(bestBridge.type === "sra"){
-          // Find min height for bridge side
-          for(let testH = 10; testH <= 30; testH += 5){
-            const los = await checkLOS(bestBridge, disc, testH, disc.height);
-            if(los.clear){
-              bestBridge.type = "lra";
-              bestBridge.height = testH;
-              bestBridge.range = 3;
-              if(bestBridge.markerElement){
-                bestBridge.markerElement.style.background = "orange";
+      let rescued = false;
+
+      for(const disc of disconnected){
+
+        let bestBridge = null;
+        let bestDiscH = 999;
+        let bestBridgeH = 999;
+
+        for(const other of nodesRef.current){
+          if(other === disc) continue;
+          if(other.type === "single") continue;
+
+          const d = distance(disc, other);
+          if(d > 3) continue;
+
+          const otherPath = getPath(other);
+          const otherConnected = other.type === "gateway" || otherPath.some(n => n.type === "gateway");
+          if(!otherConnected) continue;
+
+          for(let dh = 10; dh <= 30; dh += 5){
+            for(let oh = other.height; oh <= 30; oh += 5){
+              const los = await checkLOS(disc, other, dh, oh);
+              if(los.clear && dh < bestDiscH){
+                bestDiscH = dh;
+                bestBridgeH = oh;
+                bestBridge = other;
+                break;
               }
-              break;
             }
+            if(bestBridge && bestDiscH === dh) break;
           }
         }
 
-        await computeLinks();
+        if(bestBridge){
+          disc.type = "lra";
+          disc.height = bestDiscH;
+          disc.range = 3;
+          if(disc.markerElement) disc.markerElement.style.background = "orange";
+
+          if(bestBridge.type === "sra" || bestBridge.height < bestBridgeH){
+            if(bestBridge.type === "sra"){
+              bestBridge.type = "lra";
+              bestBridge.range = 3;
+              if(bestBridge.markerElement) bestBridge.markerElement.style.background = "orange";
+            }
+            bestBridge.height = Math.max(bestBridge.height, bestBridgeH);
+          }
+
+          await computeLinks();
+          rescued = true;
+          break;
+        }
       }
+
+      if(!rescued) break;
     }
   }
+            
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
