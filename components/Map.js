@@ -485,7 +485,22 @@ signal > -100 ? "orange" :
             "line-width":3
           }
         });
+// ✅ Click line to open terrain profile
+        const clickP1 = p1;
+        const clickP2 = p2;
+        map.on("click", lineId, (e) => {
+          e.preventDefault();
+          e.originalEvent.stopPropagation();
+          generateProfile(clickP1, clickP2);
+        });
 
+        // ✅ Pointer cursor on hover
+        map.on("mouseenter", lineId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", lineId, () => {
+          map.getCanvas().style.cursor = "";
+        });
        
 // ✅ LABEL
 const labelId = `label-${i}-${j}`;
