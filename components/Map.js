@@ -1185,7 +1185,39 @@ async function rescueDisconnected(){
         if(!reaches) disconnected.push(node);
       }
 
-      if(disconnected.length === 0) return;
+      // Also check connected nodes with blocked LOS
+      if(disconnected.length === 0){
+        let hasBlocked = false;
+        for(const node of nodesRef.current){
+          if(node.type === "gateway") continue;
+          if(node.type === "single") continue;
+          if(node.type === "lra") continue;
+          if(!node.blocked) continue;
+
+          const link = linksRef.current[node.name];
+          if(!link) continue;
+
+          const d = distance(node, link);
+          if(d > 3) continue;
+
+          // Can this SRA be upgraded to LRA to clear the blockage?
+          for(let testH = 10; testH <= 30; testH += 5){
+            const los = await checkLOS(node, link, testH, link.height);
+            if(los.clear){
+              node.type = "lra";
+              node.height = testH;
+              node.range = 3;
+              if(node.markerElement) node.markerElement.style.background = "orange";
+              await computeLinks();
+              hasBlocked = true;
+              break;
+            }
+          }
+          if(hasBlocked) break;
+        }
+        if(!hasBlocked) return;
+        continue;
+      }
 
       let rescued = false;
 
