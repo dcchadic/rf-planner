@@ -1237,19 +1237,22 @@ async function rescueDisconnected(){
           if(!bridgeConnected) continue;
 
           // Test heights for bridge → disc connection
-          for(let bh = 10; bh <= 30; bh += 5){
-            for(let dh = (disc.type === "sra" ? 5 : 10); dh <= 30; dh += 5){
+         for(let bh = 10; bh <= 30; bh += 5){
+            for(let dh = 5; dh <= 30; dh += 5){
               const los = await checkLOS(bridge, disc, bh, dh);
-              if(los.clear && bh < bestBridgeH){
-                bestBridgeH = bh;
-                bestDiscH = dh;
-                bestBridge = bridge;
+              if(los.clear){
+                if(bh + dh < bestBridgeH + bestDiscH){
+                  bestBridgeH = bh;
+                  bestDiscH = dh;
+                  bestBridge = bridge;
+                }
                 break;
               }
             }
-            if(bestBridge && bestBridgeH === bh) break;
           }
         }
+
+console.log("RESCUE FOUND:", bestBridge?.name, "→", disc.name, "bridgeH:", bestBridgeH, "discH:", bestDiscH);
 
         if(bestBridge){
           // Upgrade bridge to LRA
