@@ -618,6 +618,9 @@ map.addLayer({
 
     analyzeNetwork();
 
+    // ✅ Force sidebar to re-render with updated data
+    setNodeVersion(v => v + 1);
+
 }
 
 // ✅ TERRAIN PROFILE GENERATOR
