@@ -38,7 +38,8 @@ const [profileData, setProfileData] = useState(null);
 const canvasRef = useRef(null);
 const [profileFromHeight, setProfileFromHeight] = useState(0);
 const [profileToHeight, setProfileToHeight] = useState(0);
-
+const [profileFromType, setProfileFromType] = useState("sra");
+const [profileToType, setProfileToType] = useState("sra");
 const [measureMode, setMeasureMode] = useState(false);
 const measurePoints = useRef([]);
 const measureMarkersRef = useRef([]);
@@ -571,8 +572,10 @@ map.addLayer({
       points,
       totalDist
     });
-    setProfileFromHeight(node.height);
+   setProfileFromHeight(node.height);
     setProfileToHeight(target.height);
+    setProfileFromType(node.type);
+    setProfileToType(target.type);
     setShowProfile(true);
   }
 // ✅ DRAW TERRAIN PROFILE ON CANVAS
@@ -715,9 +718,9 @@ const fromElev = points[0].elev + profileFromHeight;
     ctx.fillStyle = "#00bcd4";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "left";
-    ctx.fillText(`${profileData.from.name} (${profileData.from.type.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
+    ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
     ctx.textAlign = "right";
-    ctx.fillText(`${profileData.to.name} (${profileData.to.type.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
+    ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
 
     // Distance labels on X axis
     ctx.fillStyle = "#888";
@@ -757,7 +760,7 @@ const fromElev = points[0].elev + profileFromHeight;
       ctx.fillText(`✅ Clear LOS — no height change needed`, W / 2, top + 30);
     }
 
-   }, [showProfile, profileData, profileFromHeight, profileToHeight]);
+  }, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
 
 function saveSnapshot(){
     const snap = nodesRef.current.map(n => ({
@@ -909,6 +912,44 @@ function handleMeasureClick(lng, lat){
     if(map.getSource("measure-line")) map.removeSource("measure-line");
     if(map.getLayer("measure-label")) map.removeLayer("measure-label");
     if(map.getSource("measure-label")) map.removeSource("measure-label");
+  }
+async function optimizeHeights(){
+    for(const node of nodesRef.current){
+      if(node.type === "gateway" || node.type === "lra"){
+
+        const maxH = 30;
+        const minH = node.type === "gateway" ? 15 : 10;
+        let neededHeight = minH;
+
+        for(const other of nodesRef.current){
+          if(other === node) continue;
+          if(other.type === "single") continue;
+
+          const d = distance(node, other);
+          const linkRange = (node.type === "lra" || node.type === "gateway") ? 3 : 0.75;
+          if(d > linkRange) continue;
+
+          // Check if this node connects to or through this one
+          const link = linksRef.current[other.name];
+          const isConnected = (link === node) || (linksRef.current[node.name] === other);
+          if(!isConnected) continue;
+
+          // Test heights until LOS clears
+          for(let testH = minH; testH <= maxH; testH += 5){
+            const los = await checkLOS(node, other, testH, other.height);
+            if(los.clear){
+              if(testH > neededHeight) neededHeight = testH;
+              break;
+            }
+            if(testH === maxH){
+              neededHeight = maxH;
+            }
+          }
+        }
+
+        node.height = neededHeight;
+      }
+    }
   }
 function redraw(){
     setNodeVersion(v => v + 1);
@@ -1363,7 +1404,11 @@ async function optimizeExisting(){
     await computeLinks();
   }
 
-  // ✅ Rebuild after upgrades
+ // ✅ Rebuild after upgrades
+  await computeLinks();
+
+  // ✅ Optimize LRA and Gateway heights for terrain
+  await optimizeHeights();
   await computeLinks();
 
   // ✅ Check if anything still can't connect
@@ -1490,6 +1535,10 @@ for(let pass = 0; pass < 10; pass++){
 
   await computeLinks();
 }
+
+// ✅ Optimize LRA and Gateway heights for terrain
+  await optimizeHeights();
+  await computeLinks();
 
   // ✅ IMPROVED GATEWAY LOGIC (ONLY ADD IF NEEDED)
 let disconnectedCount = 0;
@@ -1929,29 +1978,25 @@ setEditHeight(n.height);
           <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
             <div>
               <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
-                {profileData.from.name} Height (ft):
+                {profileData.to.name}:
               </label>
-              <input
-                type="number"
-                value={profileFromHeight}
+              <select
+                value={profileToType}
                 onChange={e => {
-                  const h = Number(e.target.value);
-                  setProfileFromHeight(h);
+                  const t = e.target.value;
+                  setProfileToType(t);
+                  if(t === "gateway") setProfileToHeight(15);
+                  else if(t === "lra") setProfileToHeight(10);
+                  else if(t === "single") setProfileToHeight(0);
+                  else setProfileToHeight(5);
                 }}
-                style={{width:60, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
-              />
-              <button
-                onClick={() => {
-                  profileData.from.height = profileFromHeight;
-                  redraw();
-                }}
-                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
-              >Apply</button>
-            </div>
-            <div>
-              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
-                {profileData.to.name} Height (ft):
-              </label>
+                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, marginRight:4}}
+              >
+                <option value="gateway">Gateway</option>
+                <option value="lra">LRA</option>
+                <option value="sra">SRA</option>
+                <option value="single">Single</option>
+              </select>
               <input
                 type="number"
                 value={profileToHeight}
@@ -1959,11 +2004,67 @@ setEditHeight(n.height);
                   const h = Number(e.target.value);
                   setProfileToHeight(h);
                 }}
-                style={{width:60, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
+                style={{width:50, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
               />
+              <span style={{color:"#888", fontSize:11, marginLeft:2}}>ft</span>
               <button
                 onClick={() => {
+                  profileData.to.type = profileToType;
                   profileData.to.height = profileToHeight;
+                  profileData.to.range = profileToType === "single" ? 0 : profileToType === "sra" ? 0.75 : 3;
+                  if(profileData.to.markerElement){
+                    profileData.to.markerElement.style.background =
+                      profileToType === "gateway" ? "blue" :
+                      profileToType === "lra" ? "orange" :
+                      profileToType === "single" ? "black" : "green";
+                  }
+                  redraw();
+                }}
+                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
+              >Apply</button>
+            </div>
+           <div>
+              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
+                {profileData.from.name}:
+              </label>
+              <select
+                value={profileFromType}
+                onChange={e => {
+                  const t = e.target.value;
+                  setProfileFromType(t);
+                  if(t === "gateway") setProfileFromHeight(15);
+                  else if(t === "lra") setProfileFromHeight(10);
+                  else if(t === "single") setProfileFromHeight(0);
+                  else setProfileFromHeight(5);
+                }}
+                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, marginRight:4}}
+              >
+                <option value="gateway">Gateway</option>
+                <option value="lra">LRA</option>
+                <option value="sra">SRA</option>
+                <option value="single">Single</option>
+              </select>
+              <input
+                type="number"
+                value={profileFromHeight}
+                onChange={e => {
+                  const h = Number(e.target.value);
+                  setProfileFromHeight(h);
+                }}
+                style={{width:50, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
+              />
+              <span style={{color:"#888", fontSize:11, marginLeft:2}}>ft</span>
+              <button
+                onClick={() => {
+                  profileData.from.type = profileFromType;
+                  profileData.from.height = profileFromHeight;
+                  profileData.from.range = profileFromType === "single" ? 0 : profileFromType === "sra" ? 0.75 : 3;
+                  if(profileData.from.markerElement){
+                    profileData.from.markerElement.style.background =
+                      profileFromType === "gateway" ? "blue" :
+                      profileFromType === "lra" ? "orange" :
+                      profileFromType === "single" ? "black" : "green";
+                  }
                   redraw();
                 }}
                 style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
