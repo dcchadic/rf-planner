@@ -508,8 +508,8 @@ map.addLayer({
 }
 
 // ✅ TERRAIN PROFILE GENERATOR
-  async function generateProfile(node){
-    const target = linksRef.current[node.name];
+  async function generateProfile(node, forceTarget){
+    const target = forceTarget || linksRef.current[node.name];
     if(!target){
       alert("This node has no connection to profile.");
       return;
@@ -661,15 +661,13 @@ const fromElev = points[0].elev + profileFromHeight;
       }
     }
 
-   
-// Node name labels
+   // Node name labels
     ctx.fillStyle = "#00bcd4";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "left";
-    ctx.fillText(`${profileData.from.name} (${profileFromHeight}ft)`, left + 5, top + 15);
+    ctx.fillText(`${profileData.from.name} (${profileData.from.type.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
     ctx.textAlign = "right";
-    ctx.fillText(`${profileData.to.name} (${profileToHeight}ft)`, left + plotW - 5, top + 15);
-
+    ctx.fillText(`${profileData.to.name} (${profileData.to.type.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
 
     // Distance labels on X axis
     ctx.fillStyle = "#888";
@@ -1016,10 +1014,11 @@ async function analyzeNetwork(){
     for(let p = 0; p < path.length - 1; p++){
       const p1 = path[p];
       const p2 = path[p + 1];
-      if(p1.blocked){
+     if(p1.blocked){
         recs.push({
           text: `⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,
-          node: p1
+          node: p1,
+          target: p2
         });
       }
     }
@@ -1824,7 +1823,7 @@ setEditHeight(n.height);
           color: r.node ? "#2196F3" : "inherit"
         }}
           onClick={() => {
-            if(r.node) generateProfile(r.node);
+            if(r.node) generateProfile(r.node, r.target || null);
           }}
         >
           {r.text}
