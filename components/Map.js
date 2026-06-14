@@ -4,6 +4,9 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -61,7 +64,8 @@ const measureMarkersRef = useRef([]);
       container: containerRef.current,
       style: "mapbox://styles/mapbox/satellite-streets-v12",
       center: [-102.8927,31.5943],
-      zoom: 11
+      zoom: 11,
+      preserveDrawingBuffer: true
     });
 
     mapRef.current = map;
@@ -1297,6 +1301,83 @@ function exportExcel(){
         });
       }
     }
+async function exportBundle(){
+    const folderName = prompt("Name this export:", "rf-network");
+    if(!folderName) return;
+
+    const zip = new JSZip();
+    const folder = zip.folder(folderName);
+
+    // 1. Excel report
+    const nodeRows = nodesRef.current.map(n => ({
+      "Name": n.name,
+      "Type": n.type.toUpperCase(),
+      "Latitude": n.lat,
+      "Longitude": n.lng,
+      "Antenna Height (ft)": n.height,
+      "Recommended Height (ft)": n.recommendedHeight || n.height,
+      "Ground Elevation (ft)": n.elevation || "N/A",
+      "Range (mi)": n.range,
+      "Status": n.outOfRange ? "SINGLE MODEM" : n.blocked ? "BLOCKED" : "OK"
+    }));
+
+    const connectionRows = [];
+    for(const a of nodesRef.current){
+      if(a.type === "gateway") continue;
+      const target = linksRef.current[a.name];
+      if(target){
+        const d = distance(a, target);
+        const signal = calcPower(d);
+        connectionRows.push({
+          "From": a.name, "To": target.name,
+          "Distance (mi)": Number(d.toFixed(2)),
+          "Signal (dBm)": Number(signal.toFixed(0)),
+          "LOS": a.blocked ? "BLOCKED" : "CLEAR"
+        });
+      } else {
+        connectionRows.push({
+          "From": a.name, "To": "NONE",
+          "Distance (mi)": "N/A", "Signal (dBm)": "N/A",
+          "LOS": "NO CONNECTION"
+        });
+      }
+    }
+
+    const summaryRows = [
+      { "Item": "Total Nodes", "Value": nodesRef.current.length },
+      { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
+      { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
+      { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length },
+      { "Item": "Single Modems", "Value": nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length }
+    ];
+
+    const recRows = recommendations.map(r => ({ "Recommendation": r.text }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nodeRows), "Nodes");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(connectionRows), "Connections");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recRows), "Recommendations");
+
+    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    folder.file(folderName + "-report.xlsx", excelBuffer);
+
+    // 2. Map screenshot
+    const map = mapRef.current;
+    const canvas = map.getCanvas();
+    const dataURL = canvas.toDataURL("image/png");
+    const imgData = dataURL.split(",")[1];
+    folder.file(folderName + "-map.png", imgData, { base64: true });
+
+    // 3. URL shortcut
+    const url = window.location.href;
+    const shortcut = "[InternetShortcut]\nURL=" + url + "\n";
+    folder.file("Open RF Planner.url", shortcut);
+
+    // 4. Generate and download zip
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, folderName + ".zip");
+  }
 
     // Sheet 3: Summary
     const summaryRows = [
@@ -1843,6 +1924,7 @@ for(let pass = 0; pass < 10; pass++){
   }
 
   // ✅ IMPROVED GATEWAY LOGIC
+let disconnectedCount = 0;
 
 for (const node of nodesRef.current) {
 
@@ -2167,7 +2249,9 @@ saveSnapshot();
 <button onClick={exportExcel} style={{width:"100%", marginBottom:6, background:"#FF9800", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
         📊 Export to Excel
       </button>
-
+      <button onClick={exportBundle} style={{width:"100%", marginBottom:6, background:"#9C27B0", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
+        📦 Export All (Zip)
+      </button>
      <label style={{
         display:"block",
         width:"100%",

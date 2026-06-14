@@ -11,6 +11,8 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
     "mapbox-gl": "^3.0.0",
     "next": "^14.0.0",
     "react": "^18.2.0",
