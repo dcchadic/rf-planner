@@ -1574,11 +1574,13 @@ async function optimizeExisting(){
 
       if(!inRange) continue;
 
-      // score = how many disconnected nodes are within SRA range
+      // score = how many disconnected nodes this LRA could reach
       let score = 0;
       for(const other of disconnected){
         if(other === node) continue;
-        if(distance(node, other) <= 0.75) score++;
+        const dd = distance(node, other);
+        if(dd <= 0.75) score += 2;
+        else if(dd <= 3) score += 1;
       }
 
       if(score > bestScore){
@@ -1715,7 +1717,9 @@ for(let pass = 0; pass < 10; pass++){
     let score = 0;
     for(const other of disconnected){
       if(other === node) continue;
-      if(distance(node, other) <= 0.75) score++;
+      const dd = distance(node, other);
+      if(dd <= 0.75) score += 2;
+      else if(dd <= 3) score += 1;
     }
 
     if(score > bestScore){
