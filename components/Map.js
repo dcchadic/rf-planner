@@ -546,12 +546,27 @@ map.addLayer({
 }
 
 // ✅ TERRAIN PROFILE GENERATOR
-  async function generateProfile(node, forceTarget){
-    const target = forceTarget || linksRef.current[node.name];
+ async function generateProfile(node, forceTarget){
+    let target = forceTarget || linksRef.current[node.name];
     if(!target){
       alert("This node has no connection to profile.");
       return;
     }
+
+    // ✅ Orient: west on left, east on right. If same longitude, north on left
+    let leftNode = node;
+    let rightNode = target;
+
+    if(node.lng > target.lng){
+      leftNode = target;
+      rightNode = node;
+    } else if(node.lng === target.lng && node.lat < target.lat){
+      leftNode = target;
+      rightNode = node;
+    }
+
+    node = leftNode;
+    target = rightNode;
 
    const samples = Math.max(10, Math.round((distance(node, target) * 5280) / 100));
     const points = [];
@@ -1976,57 +1991,8 @@ setEditHeight(n.height);
           </div>
 
           <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
-            <div>
-              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
-                {profileData.to.name}:
-              </label>
-              <select
-                value={profileToType}
-                onChange={e => {
-                  const t = e.target.value;
-                  setProfileToType(t);
-                  if(t === "gateway") setProfileToHeight(15);
-                  else if(t === "lra") setProfileToHeight(10);
-                  else if(t === "single") setProfileToHeight(0);
-                  else setProfileToHeight(5);
-                }}
-                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, marginRight:4}}
-              >
-                <option value="gateway">Gateway</option>
-                <option value="lra">LRA</option>
-                <option value="sra">SRA</option>
-                <option value="single">Single</option>
-              </select>
-              <input
-                type="number"
-                value={profileToHeight}
-                onChange={e => {
-                  const h = Number(e.target.value);
-                  setProfileToHeight(h);
-                }}
-                style={{width:50, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
-              />
-              <span style={{color:"#888", fontSize:11, marginLeft:2}}>ft</span>
-              <button
-                onClick={() => {
-                  profileData.to.type = profileToType;
-                  profileData.to.height = profileToHeight;
-                  profileData.to.range = profileToType === "single" ? 0 : profileToType === "sra" ? 0.75 : 3;
-                  if(profileData.to.markerElement){
-                    profileData.to.markerElement.style.background =
-                      profileToType === "gateway" ? "blue" :
-                      profileToType === "lra" ? "orange" :
-                      profileToType === "single" ? "black" : "green";
-                  }
-                  redraw();
-                }}
-                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
-              >Apply</button>
-            </div>
-           <div>
-              <label style={{color:"#00bcd4", fontSize:12, marginRight:4}}>
-                {profileData.from.name}:
-              </label>
+            <div style={{display:"flex", alignItems:"center", gap:4}}>
+              <span style={{color:"#00bcd4", fontSize:11}}>{profileData.from.name}:</span>
               <select
                 value={profileFromType}
                 onChange={e => {
@@ -2037,7 +2003,7 @@ setEditHeight(n.height);
                   else if(t === "single") setProfileFromHeight(0);
                   else setProfileFromHeight(5);
                 }}
-                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, marginRight:4}}
+                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, fontSize:11}}
               >
                 <option value="gateway">Gateway</option>
                 <option value="lra">LRA</option>
@@ -2047,13 +2013,10 @@ setEditHeight(n.height);
               <input
                 type="number"
                 value={profileFromHeight}
-                onChange={e => {
-                  const h = Number(e.target.value);
-                  setProfileFromHeight(h);
-                }}
-                style={{width:50, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2}}
+                onChange={e => setProfileFromHeight(Number(e.target.value))}
+                style={{width:45, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, fontSize:11}}
               />
-              <span style={{color:"#888", fontSize:11, marginLeft:2}}>ft</span>
+              <span style={{color:"#888", fontSize:10}}>ft</span>
               <button
                 onClick={() => {
                   profileData.from.type = profileFromType;
@@ -2067,7 +2030,49 @@ setEditHeight(n.height);
                   }
                   redraw();
                 }}
-                style={{marginLeft:4, background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 8px", cursor:"pointer", fontSize:11}}
+                style={{background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 6px", cursor:"pointer", fontSize:10}}
+              >Apply</button>
+            </div>
+            <div style={{display:"flex", alignItems:"center", gap:4}}>
+              <span style={{color:"#00bcd4", fontSize:11}}>{profileData.to.name}:</span>
+              <select
+                value={profileToType}
+                onChange={e => {
+                  const t = e.target.value;
+                  setProfileToType(t);
+                  if(t === "gateway") setProfileToHeight(15);
+                  else if(t === "lra") setProfileToHeight(10);
+                  else if(t === "single") setProfileToHeight(0);
+                  else setProfileToHeight(5);
+                }}
+                style={{background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, fontSize:11}}
+              >
+                <option value="gateway">Gateway</option>
+                <option value="lra">LRA</option>
+                <option value="sra">SRA</option>
+                <option value="single">Single</option>
+              </select>
+              <input
+                type="number"
+                value={profileToHeight}
+                onChange={e => setProfileToHeight(Number(e.target.value))}
+                style={{width:45, background:"#333", color:"white", border:"1px solid #00bcd4", borderRadius:4, padding:2, fontSize:11}}
+              />
+              <span style={{color:"#888", fontSize:10}}>ft</span>
+              <button
+                onClick={() => {
+                  profileData.to.type = profileToType;
+                  profileData.to.height = profileToHeight;
+                  profileData.to.range = profileToType === "single" ? 0 : profileToType === "sra" ? 0.75 : 3;
+                  if(profileData.to.markerElement){
+                    profileData.to.markerElement.style.background =
+                      profileToType === "gateway" ? "blue" :
+                      profileToType === "lra" ? "orange" :
+                      profileToType === "single" ? "black" : "green";
+                  }
+                  redraw();
+                }}
+                style={{background:"#4CAF50", color:"white", border:"none", borderRadius:4, padding:"2px 6px", cursor:"pointer", fontSize:10}}
               >Apply</button>
             </div>
           </div>
