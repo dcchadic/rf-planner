@@ -2091,7 +2091,10 @@ saveSnapshot();
     {" | "}🟢 {nodesRef.current.filter(n => n.type === "sra").length} SRA
   </div>
   <div style={{fontSize:11, color:"#888", marginBottom:6}}>
-    ⚫ {nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length} Single Modem
+    ⚫ {nodesRef.current.filter(n => n.type === "single").length} Single Modem
+    {nodesRef.current.filter(n => n.outOfRange && n.type !== "single").length > 0 && (
+      <span style={{color:"red"}}>{" | "}⚠️ {nodesRef.current.filter(n => n.outOfRange && n.type !== "single").length} Disconnected</span>
+    )}
   </div>
  
 {nodesRef.current.map((n, i) => (
