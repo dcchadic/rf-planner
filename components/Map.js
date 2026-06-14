@@ -46,6 +46,7 @@ const [measureMode, setMeasureMode] = useState(false);
 const measurePoints = useRef([]);
 const measureMarkersRef = useRef([]);
 const skipNextClick = useRef(false);
+const [showFileMenu, setShowFileMenu] = useState(false);
 
 
   const modeRef = useRef(mode);
@@ -1373,6 +1374,15 @@ function exportExcel(){
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     folder.file(folderName + "-report.xlsx", excelBuffer);
 
+ // 1b. Network save file (JSON)
+    const networkData = nodesRef.current.map(n => ({
+      name: n.name, type: n.type,
+      lat: n.lat, lng: n.lng,
+      height: n.height, range: n.range
+    }));
+    folder.file(folderName + "-network.json", JSON.stringify(networkData, null, 2));
+
+
    
   // 2. Map screenshot (captures markers too)
     const mapContainer = containerRef.current;
@@ -2224,33 +2234,49 @@ saveSnapshot();
 
       <hr/>
 
-     {/* ✅ Save & Load network */}
-    <button onClick={saveNetwork} style={{width:"100%", marginBottom:6, background:"#666", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}>
-        💾 Save Network
-      </button>
-<button onClick={exportExcel} style={{width:"100%", marginBottom:6, background:"#FF9800", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
-        📊 Export to Excel
-      </button>
-     <button onClick={() => exportBundle()} style={{width:"100%", marginBottom:6, background:"#9C27B0", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
-        📦 Export All (Zip)
-      </button>
-     <label style={{
-        display:"block",
-        width:"100%",
-        marginBottom:6,
-        padding:"6px",
-        background:"#2196F3",
-        color:"white",
-        textAlign:"center",
-        cursor:"pointer",
-        border:"none",
-        borderRadius:0,
-        fontSize:14,
-        boxSizing:"border-box"
-      }}>
-        📂 Load Network
-        <input type="file" accept=".json" onChange={loadNetwork} style={{display:"none"}}/>
-      </label>
+  {/* ✅ File Menu */}
+     <div style={{position:"relative"}}>
+       <button
+         onClick={() => setShowFileMenu(!showFileMenu)}
+         style={{width:"100%", marginBottom:6, background:"#555", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}
+       >
+         📁 File {showFileMenu ? "▲" : "▼"}
+       </button>
+
+       {showFileMenu && (
+         <div style={{
+           background:"#333",
+           border:"1px solid #555",
+           borderRadius:4,
+           marginBottom:6,
+           overflow:"hidden"
+         }}>
+           <button
+             onClick={() => { saveNetwork(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"white", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >💾 Save Network</button>
+
+           <label style={{
+             display:"block", width:"100%", padding:"8px 12px",
+             color:"white", borderBottom:"1px solid #444",
+             cursor:"pointer", fontSize:13, boxSizing:"border-box"
+           }}>
+             📂 Load Network
+             <input type="file" accept=".json" onChange={(e) => { loadNetwork(e); setShowFileMenu(false); }} style={{display:"none"}}/>
+           </label>
+
+           <button
+             onClick={() => { exportExcel(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#FF9800", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >📊 Export to Excel</button>
+
+           <button
+             onClick={() => { exportBundle(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#CE93D8", border:"none", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >📦 Export All (Zip)</button>
+         </div>
+       )}
+     </div>
 
       <hr/>
 
