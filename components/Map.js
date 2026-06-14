@@ -404,18 +404,23 @@ for (const n of nodesRef.current){
 
 for (const n of nodesRef.current){
       if (n.type === "gateway") { n.outOfRange = false; continue; }
+      if (n.type === "single") { n.outOfRange = false; continue; }
       const path = getPath(n);
       const reaches = path.some(p => p.type === "gateway");
       n.outOfRange = !reaches;
-      if ((n.outOfRange || n.type === "single") && n.markerElement){
+    }
+
+    // ✅ Update all marker colors
+    for (const n of nodesRef.current){
+      if (!n.markerElement) continue;
+      if (n.type === "single" || n.outOfRange){
         n.markerElement.style.background = "black";
-      } else if (n.markerElement){
+      } else {
         n.markerElement.style.background =
           n.type === "gateway" ? "blue" :
           n.type === "lra" ? "orange" : "green";
       }
-    }
-console.log("LINKS:", linksRef.current);
+    }console.log("LINKS:", linksRef.current);
 
     const layers = map.getStyle().layers || [];
 
@@ -1326,13 +1331,6 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
 
 
       const los = await checkLOS(a, b, a.height, b.height);
-
-if(!los.clear && (a.type === "lra" || a.type === "gateway")){
- recs.push({
-    text: `📡 ${a.name.toUpperCase()}: Increase height by ~${Math.ceil(los.requiredHeight)} ft (terrain)`,
-    node: a
-  });
-}
 
       const signal = calcPower(d);
 
