@@ -117,26 +117,35 @@ async function checkLOS(p1, p2, h1, h2){
   const elev1 = await getElevation(p1.lng, p1.lat);
   const elev2 = await getElevation(p2.lng, p2.lat);
 
-  const midLng = (p1.lng + p2.lng)/2;
-  const midLat = (p1.lat + p2.lat)/2;
+  const tip1 = elev1 + h1;
+  const tip2 = elev2 + h2;
 
-  const elevMid = await getElevation(midLng, midLat);
+  let maxBlock = 0;
 
-  const losLine = ((elev1 + h1) + (elev2 + h2)) / 2;
+  const steps = 10;
+  for(let i = 1; i < steps; i++){
+    const t = i / steps;
+    const lng = p1.lng + (p2.lng - p1.lng) * t;
+    const lat = p1.lat + (p2.lat - p1.lat) * t;
+    const elev = await getElevation(lng, lat);
+    const losAtPoint = tip1 + (tip2 - tip1) * t;
 
-  if (elevMid > losLine) {
+    const diff = elev - losAtPoint;
+    if(diff > maxBlock) maxBlock = diff;
+  }
+
+  if(maxBlock > 0){
     return {
-      clear:false,
-      requiredHeight: elevMid - losLine + 5
+      clear: false,
+      requiredHeight: maxBlock + 5
     };
   }
 
   return {
-    clear:true,
-    requiredHeight:0
+    clear: true,
+    requiredHeight: 0
   };
-}
- 
+} 
   // ---------- ADD NODE ----------
   function addNode(map,lng,lat,type,name=null,silent=false,customHeight=null){
 
