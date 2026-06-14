@@ -475,6 +475,10 @@ for (const n of nodesRef.current){
       }
     });
 
+const drawnLinks = new Set();
+
+    for(let i=0;i<nodesRef.current.length;i++){
+
     for(let i=0;i<nodesRef.current.length;i++){
 
       const a = nodesRef.current[i];
@@ -490,6 +494,11 @@ if (!path || path.length < 2) continue;
 
         const p1 = path[j];
         const p2 = path[j+1];
+
+ const linkKey = [p1.name, p2.name].sort().join("→");
+        if(drawnLinks.has(linkKey)) continue;
+        drawnLinks.add(linkKey);
+
 
         const los = await checkLOS(p1, p2, p1.height, p2.height);
         const d = distance(p1,p2);
