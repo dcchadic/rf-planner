@@ -584,28 +584,41 @@ map.addLayer({
       ctx.fillText(`${Math.round(e)}ft`, left - 5, y + 4);
     }
 
-    // Terrain fill
+   // Helper: get x,y for a point
+    function ptX(i){ return left + (points[i].dist / maxDist) * plotW; }
+    function ptY(i){ return top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH; }
+
+    // Terrain fill (smooth)
     ctx.beginPath();
     ctx.moveTo(left, top + plotH);
-    for(let i = 0; i < points.length; i++){
-      const x = left + (points[i].dist / maxDist) * plotW;
-      const y = top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH;
-      ctx.lineTo(x, y);
+    ctx.lineTo(ptX(0), ptY(0));
+    for(let i = 0; i < points.length - 1; i++){
+      const cx = (ptX(i) + ptX(i+1)) / 2;
+      const cy = (ptY(i) + ptY(i+1)) / 2;
+      ctx.quadraticCurveTo(ptX(i), ptY(i), cx, cy);
     }
+    ctx.lineTo(ptX(points.length-1), ptY(points.length-1));
     ctx.lineTo(left + plotW, top + plotH);
     ctx.closePath();
-    ctx.fillStyle = "rgba(76, 175, 80, 0.4)";
+
+    // Gradient fill
+    const terrainGrad = ctx.createLinearGradient(0, top, 0, top + plotH);
+    terrainGrad.addColorStop(0, "rgba(139, 119, 81, 0.7)");
+    terrainGrad.addColorStop(0.4, "rgba(107, 142, 35, 0.6)");
+    terrainGrad.addColorStop(1, "rgba(34, 85, 34, 0.8)");
+    ctx.fillStyle = terrainGrad;
     ctx.fill();
 
-    // Terrain line
+    // Terrain line (smooth)
     ctx.beginPath();
-    for(let i = 0; i < points.length; i++){
-      const x = left + (points[i].dist / maxDist) * plotW;
-      const y = top + plotH - ((points[i].elev - minElev) / (maxElev - minElev)) * plotH;
-      if(i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    ctx.moveTo(ptX(0), ptY(0));
+    for(let i = 0; i < points.length - 1; i++){
+      const cx = (ptX(i) + ptX(i+1)) / 2;
+      const cy = (ptY(i) + ptY(i+1)) / 2;
+      ctx.quadraticCurveTo(ptX(i), ptY(i), cx, cy);
     }
-    ctx.strokeStyle = "#4CAF50";
+    ctx.lineTo(ptX(points.length-1), ptY(points.length-1));
+    ctx.strokeStyle = "#8B7751";
     ctx.lineWidth = 2;
     ctx.stroke();
 
