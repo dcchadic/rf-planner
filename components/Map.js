@@ -5,8 +5,6 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
-import { saveAs } from "file-saver";
-
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -1376,6 +1374,7 @@ async function exportBundle(){
 
     // 4. Generate and download zip
     const content = await zip.generateAsync({ type: "blob" });
+    const { saveAs } = await import("file-saver");
     saveAs(content, folderName + ".zip");
   }
 
