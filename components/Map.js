@@ -2137,11 +2137,19 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 
       <hr/>
 
-      {/* ✅ ✅ NODE EDIT PANEL */}
+     {/* ✅ ✅ NODE EDIT PANEL */}
       {selectedNode && (
         <div style={{marginTop:10}}>
 
-          <div style={{marginBottom:6,fontWeight:"bold"}}>Edit Node</div>
+          <div
+            style={{marginBottom:6, fontWeight:"bold", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", background:"#444", color:"white", padding:"6px 10px", borderRadius:4}}
+            onClick={() => setSelectedNode(selectedNode._collapsed ? {...selectedNode, _collapsed:false} : {...selectedNode, _collapsed:true})}
+          >
+            <span>✏️ Edit: {selectedNode.name}</span>
+            <span>{selectedNode._collapsed ? "▼" : "▲"}</span>
+          </div>
+
+          {!selectedNode._collapsed && (<div>
 
           {/* ✅ Name */}
           <input
@@ -2226,9 +2234,10 @@ saveSnapshot();
             onClick={() => { if(selectedNode) generateProfile(selectedNode); }}
             style={{width:"100%", marginBottom:6, background:"#8B7355", color:"white", border:"none", padding:"6px", cursor:"pointer"}}
           >
-            📊 Terrain Profile
+          📊 Terrain Profile
           </button>
 
+          </div>)}
         </div>
       )}
 
