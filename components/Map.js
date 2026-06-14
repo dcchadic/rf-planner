@@ -477,9 +477,7 @@ for (const n of nodesRef.current){
 
 const drawnLinks = new Set();
 
-    for(let i=0;i<nodesRef.current.length;i++){
-
-    for(let i=0;i<nodesRef.current.length;i++){
+       for(let i=0;i<nodesRef.current.length;i++){
 
       const a = nodesRef.current[i];
 
