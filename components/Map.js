@@ -1833,10 +1833,10 @@ for(let pass = 0; pass < 10; pass++){
     await computeLinks();
   } catch(e) {
     console.log("Rescue pass error:", e);
+    await computeLinks();
   }
 
-
-  // ✅ IMPROVED GATEWAY LOGIClet disconnectedCount = 0;
+  // ✅ IMPROVED GATEWAY LOGIC
 
 for (const node of nodesRef.current) {
 
@@ -1864,10 +1864,11 @@ if (disconnectedCount > 6) {
 }
 
 // ✅ ✅ NOW FINISH THE FUNCTION
-draw();
+try { await draw(); } catch(e) { console.log("Draw error:", e); }
 
 setRecommendations(prev => [...prev, ...recs]);
 setShowOptimizePrompt(false);
+setNodeVersion(v => v + 1);
 
 } // ✅ closes autoOptimizeNetwork
 
