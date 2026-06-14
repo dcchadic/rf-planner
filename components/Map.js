@@ -1813,8 +1813,11 @@ try {
   try {
     await rescueDisconnected();
     await computeLinks();
-  } catch(e) {
-// ✅ Fix blocked connections by upgrading nearby SRAs to LRA
+ } catch(e) {
+    console.log("Rescue pass error:", e);
+  }
+
+  // ✅ Fix blocked connections by upgrading nearby SRAs to LRA
   for(const node of nodesRef.current){
     if(node.type !== "sra") continue;
     const link = linksRef.current[node.name];
@@ -1822,18 +1825,15 @@ try {
     const los = await checkLOS(node, link, node.height, link.height);
     if(los.clear) continue;
 
-    // This SRA has a blocked connection — find a nearby connected SRA to upgrade as bridge
     for(const bridge of nodesRef.current){
       if(bridge === node) continue;
       if(bridge.type !== "sra") continue;
       const dBridge = distance(bridge, node);
       if(dBridge > 3) continue;
 
-      // Bridge must be connected to gateway
       const bridgePath = getPath(bridge);
       if(!bridgePath.some(n => n.type === "gateway")) continue;
 
-      // Test if bridge→node can clear LOS as LRA
       for(let bh = 10; bh <= 30; bh += 5){
         for(let nh = 5; nh <= 30; nh += 5){
           const testLos = await checkLOS(bridge, node, bh, nh);
@@ -1858,8 +1858,6 @@ try {
     }
   }
   await computeLinks();
-    console.log("Rescue pass error:", e);
-  }
 
 
   // ✅ Check if anything still can't connect
@@ -2029,10 +2027,52 @@ for(let pass = 0; pass < 10; pass++){
   try {
     await rescueDisconnected();
     await computeLinks();
-  } catch(e) {
+ } catch(e) {
     console.log("Rescue pass error:", e);
     await computeLinks();
   }
+
+  // ✅ Fix blocked connections by upgrading nearby SRAs to LRA
+  for(const node of nodesRef.current){
+    if(node.type !== "sra") continue;
+    const link = linksRef.current[node.name];
+    if(!link) continue;
+    const los = await checkLOS(node, link, node.height, link.height);
+    if(los.clear) continue;
+
+    for(const bridge of nodesRef.current){
+      if(bridge === node) continue;
+      if(bridge.type !== "sra") continue;
+      const dBridge = distance(bridge, node);
+      if(dBridge > 3) continue;
+
+      const bridgePath = getPath(bridge);
+      if(!bridgePath.some(n => n.type === "gateway")) continue;
+
+      for(let bh = 10; bh <= 30; bh += 5){
+        for(let nh = 5; nh <= 30; nh += 5){
+          const testLos = await checkLOS(bridge, node, bh, nh);
+          if(testLos.clear){
+            bridge.type = "lra";
+            bridge.height = bh;
+            bridge.range = 3;
+            if(bridge.markerElement) bridge.markerElement.style.background = "orange";
+            if(nh > 5){
+              node.type = "lra";
+              node.height = nh;
+              node.range = 3;
+              if(node.markerElement) node.markerElement.style.background = "orange";
+            }
+            await computeLinks();
+            break;
+          }
+        }
+        if(bridge.type === "lra") break;
+      }
+      if(bridge.type === "lra") break;
+    }
+  }
+  await computeLinks();
 
   // ✅ IMPROVED GATEWAY LOGIC
 let disconnectedCount = 0;
