@@ -167,7 +167,7 @@ async function checkLOS(p1, p2, h1, h2){
 
   let maxBlock = 0;
 
-  const steps = 10;
+  const steps = Math.max(10, Math.round((distance(p1, p2) * 5280) / 200));
   for(let i = 1; i < steps; i++){
     const t = i / steps;
     const lng = p1.lng + (p2.lng - p1.lng) * t;
