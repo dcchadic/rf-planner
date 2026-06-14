@@ -294,10 +294,14 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
       if (!isGateway) {
         if (b.type !== "sra" && b.type !== "lra") continue;
 
-        const bPath = getPath(b);
-        const bReachesGateway = bPath.some(n => n.type === "gateway");
-        if (bReachesGateway) {
+        if (a.type === "lra" && b.type === "lra") {
           hasMeshPath = true;
+        } else {
+          const bPath = getPath(b);
+          const bReachesGateway = bPath.some(n => n.type === "gateway");
+          if (bReachesGateway) {
+            hasMeshPath = true;
+          }
         }
       }
 
