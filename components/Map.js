@@ -1375,7 +1375,35 @@ function exportExcel(){
     saveAs(content, folderName + ".zip");
   }
 
-  function loadNetwork(e){
+ function loadNetwork(e){
+    const reader = new FileReader();
+
+    reader.onload = (evt) => {
+      const data = JSON.parse(evt.target.result);
+      const map = mapRef.current;
+
+      nodesRef.current.forEach(n => {
+        if(n.marker) n.marker.remove();
+      });
+      nodesRef.current = [];
+
+      data.forEach(n => {
+        addNode(map, n.lng, n.lat, n.type, n.name, false, n.height);
+      });
+
+      let avgLat = 0;
+      let avgLng = 0;
+      for(const n of data){
+        avgLat += n.lat;
+        avgLng += n.lng;
+      }
+      avgLat /= data.length;
+      avgLng /= data.length;
+      map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+    };
+
+    reader.readAsText(e.target.files[0]);
+  }
 
  
 // ---------- ANALYSIS ----------
