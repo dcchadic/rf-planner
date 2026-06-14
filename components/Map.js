@@ -323,25 +323,26 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
     }
   }
 
-  // ✅ SECOND PASS: re-check blocked nodes for better clear paths
+ // ✅ SECOND PASS: re-check blocked or unlinked nodes for clear paths
   for (const a of sortedNodes) {
     if (a.type === "gateway") continue;
     if (a.type === "single") continue;
 
     const currentLink = linksRef.current[a.name];
-    if (!currentLink) continue;
 
-    // Only re-check if current link is blocked
-    const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
-    if (currentLOS.clear) continue;
+    // Skip if already has a clear link
+    if (currentLink) {
+      const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
+      if (currentLOS.clear) continue;
+    }
 
     // Look for a clear alternative
     let bestAlt = null;
     let bestAltDist = Infinity;
 
     for (const b of nodesRef.current) {
-      if (b === a) continue;
-      if (b === currentLink) continue;
+     if (b === a) continue;
+      if (currentLink && b === currentLink) continue;
 
       const d = distance(a, b);
       const linkRange = (b.type === "lra") ? 3 : a.range;
