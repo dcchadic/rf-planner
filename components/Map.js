@@ -411,7 +411,7 @@ for (const n of nodesRef.current){
       n.outOfRange = !reaches;
     }
 
-       }console.log("LINKS:", linksRef.current);
+       console.log("LINKS:", linksRef.current);
 
     const layers = map.getStyle().layers || [];
 
