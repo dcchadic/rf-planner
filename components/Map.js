@@ -1261,52 +1261,6 @@ function redraw(){
   }
 
 function exportExcel(){
-    // Sheet 1: Node Details
-    const nodeRows = nodesRef.current.map(n => ({
-      "Name": n.name,
-      "Type": n.type.toUpperCase(),
-      "Latitude": n.lat,
-      "Longitude": n.lng,
-      "Antenna Height (ft)": n.height,
-      "Recommended Height (ft)": n.recommendedHeight || n.height,
-      "Ground Elevation (ft)": n.elevation || "N/A",
-      "Range (mi)": n.range,
-        "Status": n.outOfRange ? "SINGLE MODEM" : n.blocked ? "BLOCKED" : "OK"
-    }));
-
-    // Sheet 2: Connections
-    const connectionRows = [];
-    for(const a of nodesRef.current){
-      if(a.type === "gateway") continue;
-      const target = linksRef.current[a.name];
-      if(target){
-        const d = distance(a, target);
-        const signal = calcPower(d);
-        connectionRows.push({
-          "From": a.name,
-          "To": target.name,
-          "Distance (mi)": Number(d.toFixed(2)),
-          "Signal (dBm)": Number(signal.toFixed(0)),
-          "LOS": a.blocked ? "BLOCKED" : "CLEAR"
-        });
-      } else {
-        connectionRows.push({
-          "From": a.name,
-          "To": "NONE",
-          "Distance (mi)": "N/A",
-          "Signal (dBm)": "N/A",
-          "LOS": "NO CONNECTION"
-        });
-      }
-    }
-async function exportBundle(){
-    const folderName = prompt("Name this export:", "rf-network");
-    if(!folderName) return;
-
-    const zip = new JSZip();
-    const folder = zip.folder(folderName);
-
-    // 1. Excel report
     const nodeRows = nodesRef.current.map(n => ({
       "Name": n.name,
       "Type": n.type.toUpperCase(),
@@ -1345,6 +1299,53 @@ async function exportBundle(){
       { "Item": "Total Nodes", "Value": nodesRef.current.length },
       { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
       { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
+      { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length }
+    ];
+
+    const recRows = recommendations.map(r => ({ "Recommendation": r.text }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nodeRows), "Nodes");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(connectionRows), "Connections");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recRows), "Recommendations");
+    XLSX.writeFile(wb, "rf-network-report.xlsx");
+  }
+
+  async function exportBundle(){
+    const folderName = prompt("Name this export:", "rf-network");
+    if(!folderName) return;
+
+    const zip = new JSZip();
+    const folder = zip.folder(folderName);
+
+    const nodeRows = nodesRef.current.map(n => ({
+      "Name": n.name, "Type": n.type.toUpperCase(),
+      "Latitude": n.lat, "Longitude": n.lng,
+      "Antenna Height (ft)": n.height,
+      "Recommended Height (ft)": n.recommendedHeight || n.height,
+      "Ground Elevation (ft)": n.elevation || "N/A",
+      "Range (mi)": n.range,
+      "Status": n.outOfRange ? "SINGLE MODEM" : n.blocked ? "BLOCKED" : "OK"
+    }));
+
+    const connectionRows = [];
+    for(const a of nodesRef.current){
+      if(a.type === "gateway") continue;
+      const target = linksRef.current[a.name];
+      if(target){
+        const d = distance(a, target);
+        const signal = calcPower(d);
+        connectionRows.push({ "From": a.name, "To": target.name, "Distance (mi)": Number(d.toFixed(2)), "Signal (dBm)": Number(signal.toFixed(0)), "LOS": a.blocked ? "BLOCKED" : "CLEAR" });
+      } else {
+        connectionRows.push({ "From": a.name, "To": "NONE", "Distance (mi)": "N/A", "Signal (dBm)": "N/A", "LOS": "NO CONNECTION" });
+      }
+    }
+
+    const summaryRows = [
+      { "Item": "Total Nodes", "Value": nodesRef.current.length },
+      { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
+      { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
       { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length },
       { "Item": "Single Modems", "Value": nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length }
     ];
@@ -1360,90 +1361,21 @@ async function exportBundle(){
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     folder.file(folderName + "-report.xlsx", excelBuffer);
 
-    // 2. Map screenshot
     const map = mapRef.current;
     const canvas = map.getCanvas();
     const dataURL = canvas.toDataURL("image/png");
     const imgData = dataURL.split(",")[1];
     folder.file(folderName + "-map.png", imgData, { base64: true });
 
-    // 3. URL shortcut
     const url = window.location.href;
-    const shortcut = "[InternetShortcut]\nURL=" + url + "\n";
-    folder.file("Open RF Planner.url", shortcut);
+    folder.file("Open RF Planner.url", "[InternetShortcut]\nURL=" + url + "\n");
 
-    // 4. Generate and download zip
     const content = await zip.generateAsync({ type: "blob" });
     const { saveAs } = await import("file-saver");
     saveAs(content, folderName + ".zip");
   }
 
-    // Sheet 3: Summary
-    const summaryRows = [
-      { "Item": "Total Nodes", "Value": nodesRef.current.length },
-      { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
-      { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
-      { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length }
-    ];
-
-    // Sheet 4: Recommendations
-    const recRows = recommendations.map(r => ({
-      "Recommendation": r.text
-    }));
-
-    // Build workbook
-    const wb = XLSX.utils.book_new();
-
-    const ws1 = XLSX.utils.json_to_sheet(nodeRows);
-    XLSX.utils.book_append_sheet(wb, ws1, "Nodes");
-
-    const ws2 = XLSX.utils.json_to_sheet(connectionRows);
-    XLSX.utils.book_append_sheet(wb, ws2, "Connections");
-
-    const ws3 = XLSX.utils.json_to_sheet(summaryRows);
-    XLSX.utils.book_append_sheet(wb, ws3, "Summary");
-
-    const ws4 = XLSX.utils.json_to_sheet(recRows);
-    XLSX.utils.book_append_sheet(wb, ws4, "Recommendations");
-
-    // Download
-    XLSX.writeFile(wb, "rf-network-report.xlsx");
-  }
-    
-  // ✅ LOAD NETWORK — opens a saved file
   function loadNetwork(e){
-    const reader = new FileReader();
-
-    reader.onload = (evt) => {
-      const data = JSON.parse(evt.target.result);
-      const map = mapRef.current;
-
-      // clear old nodes
-      nodesRef.current.forEach(n => {
-        if(n.marker) n.marker.remove();
-      });
-      nodesRef.current = [];
-
-      // place each saved node
-      data.forEach(n => {
-        addNode(map, n.lng, n.lat, n.type, n.name, false, n.height);
-      });
-
-      // center map on loaded network
-      let avgLat = 0;
-      let avgLng = 0;
-      for(const n of data){
-        avgLat += n.lat;
-        avgLng += n.lng;
-      }
-      avgLat /= data.length;
-      avgLng /= data.length;
-      map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
-    };
-
-    reader.readAsText(e.target.files[0]);
-  }
-
 
  
 // ---------- ANALYSIS ----------
