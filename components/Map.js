@@ -316,10 +316,57 @@ const linkRange = (b.type === "lra") ? 3 : a.range;
 
     }
 
-    const best = clearGateway || clearLRA || clearSRA || blockedGateway || blockedLRA || blockedSRA || null;
+   const best = clearGateway || clearLRA || clearSRA || blockedGateway || blockedLRA || blockedSRA || null;
 
     if (best) {
       linksRef.current[a.name] = best;
+    }
+  }
+
+  // ✅ SECOND PASS: re-check blocked nodes for better clear paths
+  for (const a of sortedNodes) {
+    if (a.type === "gateway") continue;
+    if (a.type === "single") continue;
+
+    const currentLink = linksRef.current[a.name];
+    if (!currentLink) continue;
+
+    // Only re-check if current link is blocked
+    const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
+    if (currentLOS.clear) continue;
+
+    // Look for a clear alternative
+    let bestAlt = null;
+    let bestAltDist = Infinity;
+
+    for (const b of nodesRef.current) {
+      if (b === a) continue;
+      if (b === currentLink) continue;
+
+      const d = distance(a, b);
+      const linkRange = (b.type === "lra") ? 3 : a.range;
+      if (d > linkRange) continue;
+
+      const isGateway = b.type === "gateway";
+
+      if (!isGateway) {
+        if (b.type !== "sra" && b.type !== "lra") continue;
+        const bPath = getPath(b);
+        const bReachesGateway = bPath.some(n => n.type === "gateway");
+        if (!bReachesGateway) continue;
+      }
+
+      const los = await checkLOS(a, b, a.height, b.height);
+      if (!los.clear) continue;
+
+      if (d < bestAltDist) {
+        bestAltDist = d;
+        bestAlt = b;
+      }
+    }
+
+    if (bestAlt) {
+      linksRef.current[a.name] = bestAlt;
     }
   }
 }
