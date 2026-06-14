@@ -610,6 +610,18 @@ map.addLayer({
 
     } // ✅ closes OUTER loop (i loop)
 
+    // ✅ FINAL marker color update after all routing is done
+    for (const n of nodesRef.current){
+      if (!n.markerElement) continue;
+      if (n.type === "single" || n.outOfRange){
+        n.markerElement.style.background = "black";
+      } else {
+        n.markerElement.style.background =
+          n.type === "gateway" ? "blue" :
+          n.type === "lra" ? "orange" : "green";
+      }
+    }
+
     analyzeNetwork();
 
 }
