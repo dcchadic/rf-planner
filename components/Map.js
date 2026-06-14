@@ -1640,8 +1640,23 @@ return (  <div style={{display:"flex",height:"100vh"}}>
         style={{width:"100%",height:80}}
       />
 
-    <button onClick={importText} style={{width:"100%", marginBottom:6}}>📍 Import Coordinates</button>
-      <input type="file" onChange={uploadExcel}/>
+    <button onClick={importText} style={{width:"100%", marginBottom:6, background:"#4CAF50", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}>📍 Import Coordinates</button>
+     <label style={{
+        display:"block",
+        width:"100%",
+        marginBottom:6,
+        padding:"6px",
+        background:"#2196F3",
+        color:"white",
+        textAlign:"center",
+        cursor:"pointer",
+        border:"none",
+        fontSize:14,
+        boxSizing:"border-box"
+      }}>
+        📂 Upload Excel
+        <input type="file" accept=".xlsx,.xls" onChange={uploadExcel} style={{display:"none"}}/>
+      </label>
 
       <hr/>
 
@@ -1726,9 +1741,9 @@ saveSnapshot();
 
 
 
-            style={{width:"100%", marginBottom:6}}
+            style={{width:"100%", marginBottom:6, background:"#4CAF50", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}
           >
-            Save Changes
+            💾 Save Changes
           </button>
 
 <button
@@ -1744,7 +1759,7 @@ saveSnapshot();
       <hr/>
 
      {/* ✅ Save & Load network */}
-      <button onClick={saveNetwork} style={{width:"100%", marginBottom:6}}>
+    <button onClick={saveNetwork} style={{width:"100%", marginBottom:6, background:"#666", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}>
         💾 Save Network
       </button>
 <button onClick={exportExcel} style={{width:"100%", marginBottom:6, background:"#FF9800", color:"white", border:"none", padding:"6px", cursor:"pointer"}}>
