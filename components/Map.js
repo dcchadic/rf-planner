@@ -1176,6 +1176,7 @@ async function optimizeHeights(){
 async function rescueDisconnected(){
     for(let attempt = 0; attempt < 5; attempt++){
 
+      // Find disconnected nodes
       let disconnected = [];
       for(const node of nodesRef.current){
         if(node.type === "gateway") continue;
@@ -1185,86 +1186,86 @@ async function rescueDisconnected(){
         if(!reaches) disconnected.push(node);
       }
 
-     // Also check connected SRAs with blocked LOS
+      // Also find SRAs with blocked LOS that could be upgraded
       if(disconnected.length === 0){
-        let upgraded = false;
         for(const node of nodesRef.current){
-          if(node.type === "gateway") continue;
-          if(node.type === "single") continue;
-          if(node.type === "lra") continue;
-
+          if(node.type !== "sra") continue;
           const link = linksRef.current[node.name];
           if(!link) continue;
-
-          // Check if this SRA's connection is actually blocked
-          const currentLOS = await checkLOS(node, link, node.height, link.height);
-          if(currentLOS.clear) continue;
-
-          // Try upgrading to LRA with higher antenna
-          for(let testH = 10; testH <= 30; testH += 5){
-            const los = await checkLOS(node, link, testH, link.height);
-            if(los.clear){
-              node.type = "lra";
-              node.height = testH;
-              node.range = 3;
-              if(node.markerElement) node.markerElement.style.background = "orange";
-              await computeLinks();
-              upgraded = true;
-              break;
-            }
-          }
-          if(upgraded) break;
+          const los = await checkLOS(node, link, node.height, link.height);
+          if(!los.clear) disconnected.push(node);
         }
-        if(!upgraded) return;
-        continue;
       }
+
+      if(disconnected.length === 0) return;
 
       let rescued = false;
 
+      // Strategy 1: Find any SRA that could bridge to a disconnected node
       for(const disc of disconnected){
-
         let bestBridge = null;
-        let bestDiscH = 999;
         let bestBridgeH = 999;
+        let bestDiscH = 999;
 
-        for(const other of nodesRef.current){
-          if(other === disc) continue;
-          if(other.type === "single") continue;
+        // Check ALL nodes as potential bridges
+        for(const bridge of nodesRef.current){
+          if(bridge === disc) continue;
+          if(bridge.type === "single") continue;
+          if(bridge.type === "gateway") continue;
 
-          const d = distance(disc, other);
-          if(d > 3) continue;
+          const dToDisc = distance(bridge, disc);
+          if(dToDisc > 3) continue;
 
-          const otherPath = getPath(other);
-          const otherConnected = other.type === "gateway" || otherPath.some(n => n.type === "gateway");
-          if(!otherConnected) continue;
+          // Bridge must be connected to gateway (or be upgradeable to connect)
+          let bridgeConnected = false;
+          const bridgePath = getPath(bridge);
+          if(bridgePath.some(n => n.type === "gateway")) bridgeConnected = true;
 
-          for(let dh = 10; dh <= 30; dh += 5){
-            for(let oh = other.height; oh <= 30; oh += 5){
-              const los = await checkLOS(disc, other, dh, oh);
-              if(los.clear && dh < bestDiscH){
-                bestDiscH = dh;
-                bestBridgeH = oh;
-                bestBridge = other;
+          // If bridge isn't connected, check if it's within 3mi of gateway or connected LRA
+          if(!bridgeConnected){
+            for(const g of nodesRef.current){
+              if(g.type !== "gateway" && g.type !== "lra") continue;
+              const gPath = getPath(g);
+              if(g.type !== "gateway" && !gPath.some(n => n.type === "gateway")) continue;
+              if(distance(bridge, g) <= 3){
+                bridgeConnected = true;
                 break;
               }
             }
-            if(bestBridge && bestDiscH === dh) break;
+          }
+
+          if(!bridgeConnected) continue;
+
+          // Test heights for bridge → disc connection
+          for(let bh = 10; bh <= 30; bh += 5){
+            for(let dh = (disc.type === "sra" ? 5 : 10); dh <= 30; dh += 5){
+              const los = await checkLOS(bridge, disc, bh, dh);
+              if(los.clear && bh < bestBridgeH){
+                bestBridgeH = bh;
+                bestDiscH = dh;
+                bestBridge = bridge;
+                break;
+              }
+            }
+            if(bestBridge && bestBridgeH === bh) break;
           }
         }
 
         if(bestBridge){
-          disc.type = "lra";
-          disc.height = bestDiscH;
-          disc.range = 3;
-          if(disc.markerElement) disc.markerElement.style.background = "orange";
+          // Upgrade bridge to LRA
+          if(bestBridge.type === "sra"){
+            bestBridge.type = "lra";
+            bestBridge.range = 3;
+            if(bestBridge.markerElement) bestBridge.markerElement.style.background = "orange";
+          }
+          bestBridge.height = Math.max(bestBridge.height, bestBridgeH);
 
-          if(bestBridge.type === "sra" || bestBridge.height < bestBridgeH){
-            if(bestBridge.type === "sra"){
-              bestBridge.type = "lra";
-              bestBridge.range = 3;
-              if(bestBridge.markerElement) bestBridge.markerElement.style.background = "orange";
-            }
-            bestBridge.height = Math.max(bestBridge.height, bestBridgeH);
+          // Upgrade disc if needed
+          if(bestDiscH > 5 || distance(bestBridge, disc) > 0.75){
+            disc.type = "lra";
+            disc.range = 3;
+            disc.height = Math.max(disc.height, bestDiscH);
+            if(disc.markerElement) disc.markerElement.style.background = "orange";
           }
 
           await computeLinks();
@@ -1275,8 +1276,7 @@ async function rescueDisconnected(){
 
       if(!rescued) break;
     }
-  }
-            
+  }            
 function redraw(){
     setNodeVersion(v => v + 1);
     draw();
@@ -1752,13 +1752,27 @@ try {
 
       if(!inRange) continue;
 
-      // score = how many disconnected nodes this LRA could reach
+     // score = how many disconnected nodes this LRA could reach
       let score = 0;
       for(const other of disconnected){
         if(other === node) continue;
         const dd = distance(node, other);
         if(dd <= 0.75) score += 2;
         else if(dd <= 3) score += 1;
+      }
+
+      // Also score connected nodes that have no LRA nearby
+      if(score === 0){
+        for(const other of nodesRef.current){
+          if(other === node) continue;
+          if(other.type === "gateway") continue;
+          if(other.type === "single") continue;
+          const dd = distance(node, other);
+          if(dd > 3) continue;
+          const otherPath = getPath(other);
+          const otherReaches = otherPath.some(n => n.type === "gateway");
+          if(!otherReaches && dd <= 3) score += 1;
+        }
       }
 
       if(score > bestScore){
@@ -1881,12 +1895,24 @@ for(let pass = 0; pass < 10; pass++){
 
   let upgraded = false;
 
-  let disconnected = [];
+ let disconnected = [];
   for(const node of nodesRef.current){
     if(node.type === "gateway") continue;
+    if(node.type === "single") continue;
     const path = getPath(node);
     const reachesGateway = path.some(n => n.type === "gateway");
     if(!reachesGateway) disconnected.push(node);
+  }
+
+  // Also add connected SRAs with blocked LOS
+  if(disconnected.length === 0){
+    for(const node of nodesRef.current){
+      if(node.type !== "sra") continue;
+      const link = linksRef.current[node.name];
+      if(!link) { disconnected.push(node); continue; }
+      const los = await checkLOS(node, link, node.height, link.height);
+      if(!los.clear) disconnected.push(node);
+    }
   }
 
   if(disconnected.length === 0) break;
@@ -1907,12 +1933,26 @@ for(let pass = 0; pass < 10; pass++){
 
     if(!inRange) continue;
 
-    let score = 0;
+   let score = 0;
     for(const other of disconnected){
       if(other === node) continue;
       const dd = distance(node, other);
       if(dd <= 0.75) score += 2;
       else if(dd <= 3) score += 1;
+    }
+
+    // Also score connected nodes that have no LRA nearby
+    if(score === 0){
+      for(const other of nodesRef.current){
+        if(other === node) continue;
+        if(other.type === "gateway") continue;
+        if(other.type === "single") continue;
+        const dd = distance(node, other);
+        if(dd > 3) continue;
+        const otherPath = getPath(other);
+        const otherReaches = otherPath.some(n => n.type === "gateway");
+        if(!otherReaches && dd <= 3) score += 1;
+      }
     }
 
     if(score > bestScore){
