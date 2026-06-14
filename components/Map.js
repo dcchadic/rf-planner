@@ -411,17 +411,7 @@ for (const n of nodesRef.current){
       n.outOfRange = !reaches;
     }
 
-    // ✅ Update all marker colors
-    for (const n of nodesRef.current){
-      if (!n.markerElement) continue;
-      if (n.type === "single" || n.outOfRange){
-        n.markerElement.style.background = "black";
-      } else {
-        n.markerElement.style.background =
-          n.type === "gateway" ? "blue" :
-          n.type === "lra" ? "orange" : "green";
-      }
-    }console.log("LINKS:", linksRef.current);
+       }console.log("LINKS:", linksRef.current);
 
     const layers = map.getStyle().layers || [];
 
@@ -613,12 +603,16 @@ map.addLayer({
     // ✅ FINAL marker color update after all routing is done
     for (const n of nodesRef.current){
       if (!n.markerElement) continue;
-      if (n.type === "single" || n.outOfRange){
+      if (n.type === "single"){
         n.markerElement.style.background = "black";
+      } else if (n.outOfRange){
+        n.markerElement.style.background = "#666";
+        n.markerElement.style.border = "2px solid red";
       } else {
         n.markerElement.style.background =
           n.type === "gateway" ? "blue" :
           n.type === "lra" ? "orange" : "green";
+        n.markerElement.style.border = "none";
       }
     }
 
