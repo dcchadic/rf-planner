@@ -478,6 +478,7 @@ for (const n of nodesRef.current){
       const a = nodesRef.current[i];
 
      if(a.type==="gateway") continue;
+     if(a.type==="single") continue;
 
       const path = getPath(a);
 
@@ -1989,6 +1990,7 @@ return (  <div style={{display:"flex",height:"100vh"}}>
 
   selectedNode.name = editName;
   selectedNode.type = editType;
+  selectedNode.outOfRange = false;
 
  if(editType === "gateway"){
     selectedNode.height = editHeight;
@@ -2198,6 +2200,7 @@ setEditHeight(n.height);
               <button
                 onClick={() => {
                   profileData.from.type = profileFromType;
+profileData.from.outOfRange = false;
                   profileData.from.height = profileFromHeight;
                   profileData.from.range = profileFromType === "single" ? 0 : profileFromType === "sra" ? 0.75 : 3;
                   if(profileData.from.markerElement){
@@ -2240,6 +2243,7 @@ setEditHeight(n.height);
               <button
                 onClick={() => {
                   profileData.to.type = profileToType;
+   profileData.to.outOfRange = false;
                   profileData.to.height = profileToHeight;
                   profileData.to.range = profileToType === "single" ? 0 : profileToType === "sra" ? 0.75 : 3;
                   if(profileData.to.markerElement){
