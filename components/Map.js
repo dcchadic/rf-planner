@@ -2059,7 +2059,49 @@ return (  <div style={{display:"flex",height:"100vh"}}>
   overflowY:"auto",
   padding:12
 }}>
+ {/* ✅ File Menu */}
+     <div style={{position:"relative"}}>
+       <button
+         onClick={() => setShowFileMenu(!showFileMenu)}
+         style={{width:"100%", marginBottom:6, background:"#555", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}
+       >
+         📁 File {showFileMenu ? "▲" : "▼"}
+       </button>
 
+       {showFileMenu && (
+         <div style={{
+           background:"#333",
+           border:"1px solid #555",
+           borderRadius:4,
+           marginBottom:6,
+           overflow:"hidden"
+         }}>
+           <button
+             onClick={() => { saveNetwork(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"white", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >💾 Save Network</button>
+
+           <label style={{
+             display:"block", width:"100%", padding:"8px 12px",
+             color:"white", borderBottom:"1px solid #444",
+             cursor:"pointer", fontSize:13, boxSizing:"border-box"
+           }}>
+             📂 Load Network
+             <input type="file" accept=".json" onChange={(e) => { loadNetwork(e); setShowFileMenu(false); }} style={{display:"none"}}/>
+           </label>
+
+           <button
+             onClick={() => { exportExcel(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#FF9800", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >📊 Export to Excel</button>
+
+           <button
+             onClick={() => { exportBundle(); setShowFileMenu(false); }}
+             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#CE93D8", border:"none", cursor:"pointer", textAlign:"left", fontSize:13}}
+           >📦 Export All (Zip)</button>
+         </div>
+       )}
+     </div>
 <div style={{display:"flex", gap:4, marginTop:6}}>
     <button onClick={undo} style={{flex:1, background:"#666", color:"white", padding:"6px", border:"none", cursor:"pointer"}}>
       ↩️ Undo
@@ -2242,54 +2284,6 @@ saveSnapshot();
       )}
 
       <hr/>
-
-  {/* ✅ File Menu */}
-     <div style={{position:"relative"}}>
-       <button
-         onClick={() => setShowFileMenu(!showFileMenu)}
-         style={{width:"100%", marginBottom:6, background:"#555", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}
-       >
-         📁 File {showFileMenu ? "▲" : "▼"}
-       </button>
-
-       {showFileMenu && (
-         <div style={{
-           background:"#333",
-           border:"1px solid #555",
-           borderRadius:4,
-           marginBottom:6,
-           overflow:"hidden"
-         }}>
-           <button
-             onClick={() => { saveNetwork(); setShowFileMenu(false); }}
-             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"white", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
-           >💾 Save Network</button>
-
-           <label style={{
-             display:"block", width:"100%", padding:"8px 12px",
-             color:"white", borderBottom:"1px solid #444",
-             cursor:"pointer", fontSize:13, boxSizing:"border-box"
-           }}>
-             📂 Load Network
-             <input type="file" accept=".json" onChange={(e) => { loadNetwork(e); setShowFileMenu(false); }} style={{display:"none"}}/>
-           </label>
-
-           <button
-             onClick={() => { exportExcel(); setShowFileMenu(false); }}
-             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#FF9800", border:"none", borderBottom:"1px solid #444", cursor:"pointer", textAlign:"left", fontSize:13}}
-           >📊 Export to Excel</button>
-
-           <button
-             onClick={() => { exportBundle(); setShowFileMenu(false); }}
-             style={{width:"100%", padding:"8px 12px", background:"transparent", color:"#CE93D8", border:"none", cursor:"pointer", textAlign:"left", fontSize:13}}
-           >📦 Export All (Zip)</button>
-         </div>
-       )}
-     </div>
-
-      <hr/>
-
-<hr/>
 
 <div>
   <div style={{fontWeight:"bold", marginBottom:6}}>
