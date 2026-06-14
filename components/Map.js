@@ -90,26 +90,63 @@ map.on("click",(e)=>{
  // ---------- TERRAIN ----------
 async function getElevation(lng, lat){
 
-  const key = `${lng.toFixed(4)},${lat.toFixed(4)}`;
-  if(elevationCache[key]) return elevationCache[key];
+  const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+  if(elevationCache[key] !== undefined) return elevationCache[key];
 
   try{
-    const res = await fetch(
-      `https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/${lng},${lat}.json?layers=contour&limit=1&access_token=${mapboxgl.accessToken}`
-    );
+    const zoom = 14;
+    const tileSize = 256;
 
-    const data = await res.json();
+    // Convert lng/lat to tile coordinates
+    const tileX = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+    const latRad = lat * Math.PI / 180;
+    const tileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom));
 
-    const elev = (data.features?.[0]?.properties?.ele || 0) * 3.281;
-    elevationCache[key] = elev;
+    // Get pixel position within the tile
+    const pixelX = Math.floor(((lng + 180) / 360 * Math.pow(2, zoom) - tileX) * tileSize);
+    const pixelY = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom) - tileY) * tileSize);
 
-    return elev;
+    // Check if we already have this tile cached
+    const tileKey = `tile_${zoom}_${tileX}_${tileY}`;
+
+    if(!elevationCache[tileKey]){
+      // Fetch the Terrain-RGB tile
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = `https://api.mapbox.com/v4/mapbox.terrain-rgb/${zoom}/${tileX}/${tileY}.pngraw?access_token=${mapboxgl.accessToken}`;
+      });
+
+      // Draw tile to canvas and grab pixel data
+      const canvas = document.createElement("canvas");
+      canvas.width = tileSize;
+      canvas.height = tileSize;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      elevationCache[tileKey] = ctx.getImageData(0, 0, tileSize, tileSize);
+    }
+
+    // Read RGB values at the pixel
+    const imageData = elevationCache[tileKey];
+    const idx = (pixelY * tileSize + pixelX) * 4;
+    const R = imageData.data[idx];
+    const G = imageData.data[idx + 1];
+    const B = imageData.data[idx + 2];
+
+    // Decode RGB to elevation in meters, then convert to feet
+    const elevMeters = -10000 + (R * 256 * 256 + G * 256 + B) * 0.1;
+    const elevFeet = elevMeters * 3.281;
+
+    elevationCache[key] = elevFeet;
+    return elevFeet;
 
   }catch{
     return 0;
   }
 }
-
 
 // ✅ LOS FUNCTION (separate!)
 async function checkLOS(p1, p2, h1, h2){
@@ -1738,8 +1775,6 @@ saveSnapshot();
   setNodeVersion(v => v + 1);
   redraw();
 }}
-
-
 
             style={{width:"100%", marginBottom:6, background:"#4CAF50", color:"white", border:"none", padding:"6px", cursor:"pointer", fontSize:14}}
           >
