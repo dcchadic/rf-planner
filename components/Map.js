@@ -999,38 +999,68 @@ async function optimizeFresnel(){
       setFccLoading(false);
     }
   }
-function updateHeatmapData(){
+async function updateHeatmapData(){
     const map = mapRef.current; if(!map) return;
-    const features = nodesRef.current
-      .filter(n => n.type !== "single" && !n.outOfRange)
-      .map(n => ({
+    const features = [];
+    const connected = nodesRef.current.filter(n => n.type !== "single" && !n.outOfRange);
+
+    for(const n of connected){
+      const rangeMi = (n.type === "gateway" || n.type === "lra") ? 3 : 0.75;
+      const dirs = (n.type === "gateway" || n.type === "lra") ? 16 : 8;
+      const steps = 5;
+
+      // Center point (strongest)
+      features.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: [n.lng, n.lat] },
-        properties: {
-          weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.7 : 0.4,
-          range: n.type === "gateway" ? 3 : n.type === "lra" ? 3 : 0.75
+        properties: { weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.8 : 0.5 }
+      });
+
+      // Sample in each direction
+      for(let dir = 0; dir < dirs; dir++){
+        const angle = (dir / dirs) * 2 * Math.PI;
+        for(let s = 1; s <= steps; s++){
+          const dist = (s / steps) * rangeMi;
+          const dlat = (dist / 69) * Math.cos(angle);
+          const dlng = (dist / (69 * Math.cos(n.lat * Math.PI / 180))) * Math.sin(angle);
+          const sLat = n.lat + dlat;
+          const sLng = n.lng + dlng;
+
+          // Quick terrain check
+          const elev1 = await getElevation(n.lng, n.lat);
+          const elev2 = await getElevation(sLng, sLat);
+          const tip1 = elev1 + n.height;
+          const tip2 = elev2 + 5;
+
+          // Check midpoint for blockage
+          const midLng = (n.lng + sLng) / 2;
+          const midLat = (n.lat + sLat) / 2;
+          const midElev = await getElevation(midLng, midLat);
+          const midLOS = (tip1 + tip2) / 2;
+
+          if(midElev > midLOS) break; // Terrain blocks this direction
+
+          const w = (1 - (s / steps)) * (n.type === "gateway" ? 0.8 : n.type === "lra" ? 0.6 : 0.4);
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [sLng, sLat] },
+            properties: { weight: Math.max(0.05, w) }
+          });
         }
-      }));
+      }
+    }
+
     const data = { type: "FeatureCollection", features };
     if(map.getSource("signal-heatmap")){
       map.getSource("signal-heatmap").setData(data);
     }
   }
-
-  function toggleHeatmap(){
+async function toggleHeatmap(){
     const map = mapRef.current; if(!map) return;
     if(!showHeatmap){
       if(!heatmapLoaded.current){
-        const features = nodesRef.current
-          .filter(n => n.type !== "single" && !n.outOfRange)
-          .map(n => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [n.lng, n.lat] },
-            properties: {
-              weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.7 : 0.4,
-              range: n.type === "gateway" ? 3 : n.type === "lra" ? 3 : 0.75
-            }
-          }));
+        // Generate initial terrain-aware data
+        const features = [{type:"Feature",geometry:{type:"Point",coordinates:[0,0]},properties:{weight:0}}];
         map.addSource("signal-heatmap", {
           type: "geojson",
           data: { type: "FeatureCollection", features }
@@ -1042,7 +1072,7 @@ function updateHeatmapData(){
           paint: {
             "heatmap-weight": ["get", "weight"],
             "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 15, 2],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 30, 10, 60, 12, 120, 14, 200, 16, 350],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 20, 10, 40, 12, 80, 14, 140, 16, 220],
             "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(0,0,0,0)",
@@ -1058,9 +1088,9 @@ function updateHeatmapData(){
         }, "all-nodes");
         heatmapLoaded.current = true;
       } else {
-        updateHeatmapData();
         if(map.getLayer("signal-heatmap-layer")) map.setLayoutProperty("signal-heatmap-layer", "visibility", "visible");
       }
+      await updateHeatmapData();
       setShowHeatmap(true);
     } else {
       if(map.getLayer("signal-heatmap-layer")) map.setLayoutProperty("signal-heatmap-layer", "visibility", "none");
