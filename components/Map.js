@@ -465,7 +465,7 @@ analyzeNetwork();
     const minElev = Math.min(...points.map(p => p.elev)) - padElev;
     const maxElev = Math.max(...points.map(p => p.elev)) + padElev + profileData.from.height + profileData.to.height;
     const maxDist = profileData.totalDist;
-    const left = 65, right = 25, top = 35, bottom = 45;
+     const left = 65, right = 25, top = 95, bottom = 45;
     const plotW = W - left - right, plotH = H - top - bottom;
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, W, H);
@@ -562,8 +562,8 @@ analyzeNetwork();
       }
     }
     ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial";
-    ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 50);
-    ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 50);
+    ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
+    ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
    ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
     for(let i = 0; i <= 5; i++){
       const d = (maxDist / 5) * i;
@@ -595,20 +595,19 @@ analyzeNetwork();
         ctx.fillStyle="#ff5555";ctx.font="bold 16px Arial";ctx.textAlign="center";
         ctx.fillText(`\u26A0\uFE0F Increase height by ~${Math.ceil(maxBlock2+5)}ft to clear obstruction`,W/2,top+65);
       }
-    } else {
+   } else {
       ctx.fillStyle="#4CAF50";ctx.font="bold 16px Arial";ctx.textAlign="center";
-  ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+82);
-      // Fresnel recommendation
+      ctx.fillText(`✅ Clear LOS — no height change needed`,W/2,top+30);
       if(fresnelClear){
         ctx.fillStyle="#4CAF50";ctx.font="bold 12px Arial";ctx.textAlign="center";
         ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+48);
       } else {
         ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";ctx.textAlign="center";
-       ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+82);
+        ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
       }
     }
  // --- FRESNEL REFERENCE CHART ---
-   const chartTop = top + 2;
+  const chartTop = 12;
     const chartLeft = left;
     const barH = 10;
     const barW = plotW;
@@ -1050,12 +1049,14 @@ function updateHeatmapData(){
   }
   async function analyzeNetwork(){
     const recs=[];
+    const seenRecs = new Set();
     for(const a of nodesRef.current){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
       const path=getPath(a);if(!path.some(n=>n.type==="gateway"))continue;
       for(let p=0;p<path.length-1;p++){const p1=path[p],p2=path[p+1];
-        if(p1.blocked){recs.push({text:`⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,node:p1,target:p2});}
-        else if(p1.fresnelWarn){recs.push({text:`⚠️ ${p1.name.toUpperCase()} → ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% — increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}
+        const recKey = [p1.name, p2.name].sort().join("→");
+        if(p1.blocked && !seenRecs.has("block-"+recKey)){seenRecs.add("block-"+recKey);recs.push({text:`⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,node:p1,target:p2});}
+        else if(p1.fresnelWarn && p1.fresnelTarget){const fKey=[p1.name,p1.fresnelTarget.name].sort().join("→");if(!seenRecs.has("fresnel-"+fKey)){seenRecs.add("fresnel-"+fKey);recs.push({text:`⚠️ ${p1.name.toUpperCase()} → ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% — increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}}
     }
     for(const a of nodesRef.current){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
@@ -1304,7 +1305,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
       <button onClick={()=>{profileData.to.type=profileToType;profileData.to.outOfRange=false;profileData.to.height=profileToHeight;profileData.to.range=profileToType==="single"?0:profileToType==="sra"?0.75:3;if(profileData.to.markerElement){profileData.to.markerElement.style.background=profileToType==="gateway"?"blue":profileToType==="lra"?"orange":profileToType==="single"?"black":"green";}redraw();}} style={{background:"#4CAF50",color:"white",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10}}>Apply</button>
     </div>
   </div>
- <canvas ref={canvasRef} width={800} height={350} style={{width:"100%",height:"auto"}}/>
+ <canvas ref={canvasRef} width={800} height={460} style={{width:"100%",height:"auto"}}/>
 </div>)}
 <div style={{flex:1,position:"relative"}}>
   <div ref={containerRef} style={{width:"100%",height:"100%"}}/>
