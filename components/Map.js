@@ -278,7 +278,7 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
   async function draw(){
     const map = mapRef.current;
     if(!map) return;
-    for (const n of nodesRef.current){ n.blocked = false; n.blockDetail = null; }
+    for (const n of nodesRef.current){ n.blocked = false; n.blockDetail = null; n.fresnelWarn = false; n.fresnelDetail = null; n.fresnelTarget = null; }
     await computeLinks();
     for (const n of nodesRef.current){
       if (n.type === "gateway") { n.outOfRange = false; continue; }
@@ -338,10 +338,44 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
         const lineId = `line-${i}-${j}`;
         if (map.getSource(lineId)) { try { map.removeLayer(lineId); map.removeSource(lineId); } catch {} }
         map.addSource(lineId,{ type:"geojson", data:{ type:"Feature", geometry:{ type:"LineString", coordinates:[[p1.lng,p1.lat],[p2.lng,p2.lat]] } } });
+       let fresnelPct = 100;
+        if(los.clear){
+          const totalDistM2 = d * 1609.34;
+          const wl = 0.333;
+          if(totalDistM2 > 0){
+            const elev1 = await getElevation(p1.lng, p1.lat);
+            const elev2 = await getElevation(p2.lng, p2.lat);
+            const tip1f = elev1 + p1.height;
+            const tip2f = elev2 + p2.height;
+            const checkSteps = 20;
+            for(let s = 1; s < checkSteps; s++){
+              const t2 = s / checkSteps;
+              const d1m = t2 * totalDistM2;
+              const d2m = totalDistM2 - d1m;
+              const fR = (d1m > 0 && d2m > 0) ? Math.sqrt(wl * d1m * d2m / totalDistM2) * 3.281 : 0;
+              if(fR <= 0) continue;
+              const lng2 = p1.lng + (p2.lng - p1.lng) * t2;
+              const lat2 = p1.lat + (p2.lat - p1.lat) * t2;
+              const ev = await getElevation(lng2, lat2);
+              const losE = tip1f + (tip2f - tip1f) * t2;
+              const cl = losE - ev;
+              const pct2 = (cl / fR) * 100;
+              if(pct2 < fresnelPct) fresnelPct = pct2;
+            }
+          }
+        }
+        const lineColor = !los.clear ? "red" : fresnelPct < 60 ? "white" : signal > -70 ? "green" : signal > -85 ? "yellow" : signal > -100 ? "orange" : "red";
         map.addLayer({ id:lineId, type:"line", source:lineId, paint:{
-          "line-color": !los.clear?"red": signal>-70?"green": signal>-85?"yellow": signal>-100?"orange":"red",
+          "line-color": lineColor,
           "line-width":3 }
         });
+
+ if(los.clear && fresnelPct < 60){
+          p1.fresnelWarn = true;
+          p1.fresnelDetail = `⚠️ Fresnel ${Math.max(0,fresnelPct).toFixed(0)}% clearance → ${p2.name} — increase height`;
+          p1.fresnelTarget = p2;
+        }
+
         const clickP1=p1,clickP2=p2;
         map.on("click", lineId, (e) => { e.preventDefault(); e.originalEvent.stopPropagation(); skipNextClick.current=true; generateProfile(clickP1, clickP2); });
         map.on("mouseenter", lineId, () => { map.getCanvas().style.cursor = "pointer"; });
@@ -813,7 +847,7 @@ function updateHeatmapData(){
           paint: {
             "heatmap-weight": ["get", "weight"],
             "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 15, 2],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 15, 11, 40, 14, 80, 16, 120],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 30, 10, 60, 12, 120, 14, 200, 16, 350],
             "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(0,0,0,0)",
@@ -927,7 +961,8 @@ function updateHeatmapData(){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
       const path=getPath(a);if(!path.some(n=>n.type==="gateway"))continue;
       for(let p=0;p<path.length-1;p++){const p1=path[p],p2=path[p+1];
-        if(p1.blocked){recs.push({text:`\u26F0\uFE0F ${p1.name.toUpperCase()} \u2192 ${p2.name.toUpperCase()}: Blocked LOS \u2014 adjust height`,node:p1,target:p2});}}
+        if(p1.blocked){recs.push({text:`⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,node:p1,target:p2});}
+        else if(p1.fresnelWarn){recs.push({text:`⚠️ ${p1.name.toUpperCase()} → ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% — increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}
     }
     for(const a of nodesRef.current){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
