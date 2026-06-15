@@ -49,12 +49,16 @@ export default function Map(){
 
   // ---------- FCC TOWER STATE ----------
   const [showFCCTowers, setShowFCCTowers] = useState(false);
+const [showHeatmap, setShowHeatmap] = useState(false);
+  const heatmapLoaded = useRef(false);
+  const showHeatmapRef = useRef(false);
   const [fccLoading, setFccLoading] = useState(false);
   const fccLoaded = useRef(false);
   const fccPopupRef = useRef(null);
 
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
 
   const measureModeRef = useRef(false);
   useEffect(() => { measureModeRef.current = measureMode; }, [measureMode]);
@@ -361,7 +365,8 @@ export default function Map(){
       else if (n.outOfRange){ n.markerElement.style.background = "#666"; n.markerElement.style.border = "2px solid red"; }
       else { n.markerElement.style.background = n.type==="gateway"?"blue":n.type==="lra"?"orange":"green"; n.markerElement.style.border = "none"; }
     }
-    analyzeNetwork();
+    if(showHeatmapRef.current) updateHeatmapData();
+analyzeNetwork();
     setNodeVersion(v => v + 1);
   }
 
@@ -432,6 +437,59 @@ export default function Map(){
     ctx.beginPath(); ctx.moveTo(left, fromGroundY); ctx.lineTo(left, fromTipY); ctx.strokeStyle = "#00bcd4"; ctx.lineWidth = 3; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(left + plotW, toGroundY); ctx.lineTo(left + plotW, toTipY); ctx.strokeStyle = "#00bcd4"; ctx.lineWidth = 3; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(left, fromTipY); ctx.lineTo(left + plotW, toTipY); ctx.strokeStyle = "#ff5555"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+
+    // --- FRESNEL ZONE ---
+    const wavelengthM = 0.333; // 900 MHz
+    const totalDistM = profileData.totalDist * 1609.34;
+    if(totalDistM > 0){
+      ctx.beginPath();
+      for(let i = 0; i < points.length; i++){
+        const t = i / (points.length - 1);
+        const d1m = t * totalDistM;
+        const d2m = totalDistM - d1m;
+        const fresnelR = (d1m > 0 && d2m > 0) ? Math.sqrt(wavelengthM * d1m * d2m / totalDistM) * 3.281 : 0;
+        const losElev = fromElev + (toElev - fromElev) * t;
+        const upperElev = losElev + fresnelR;
+        const x = left + (points[i].dist / maxDist) * plotW;
+        const y = top + plotH - ((upperElev - minElev) / (maxElev - minElev)) * plotH;
+        if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      for(let i = points.length - 1; i >= 0; i--){
+        const t = i / (points.length - 1);
+        const d1m = t * totalDistM;
+        const d2m = totalDistM - d1m;
+        const fresnelR = (d1m > 0 && d2m > 0) ? Math.sqrt(wavelengthM * d1m * d2m / totalDistM) * 3.281 : 0;
+        const losElev = fromElev + (toElev - fromElev) * t;
+        const lowerElev = losElev - fresnelR;
+        const x = left + (points[i].dist / maxDist) * plotW;
+        const y = top + plotH - ((lowerElev - minElev) / (maxElev - minElev)) * plotH;
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 165, 0, 0.15)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 165, 0, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Fresnel clearance check
+    let fresnelClear = true;
+    let worstFresnelPct = 100;
+    if(totalDistM > 0){
+      for(let i = 1; i < points.length - 1; i++){
+        const t = i / (points.length - 1);
+        const d1m = t * totalDistM;
+        const d2m = totalDistM - d1m;
+        const fresnelR = Math.sqrt(wavelengthM * d1m * d2m / totalDistM) * 3.281;
+        if(fresnelR <= 0) continue;
+        const losElev2 = fromElev + (toElev - fromElev) * t;
+        const clearance = losElev2 - points[i].elev;
+        const pct = (clearance / fresnelR) * 100;
+        if(pct < worstFresnelPct) worstFresnelPct = pct;
+        if(clearance < fresnelR * 0.6) fresnelClear = false;
+      }
+    }
     let blocked = false;
     for(let i = 0; i < points.length; i++){
       const t = i / (points.length - 1);
@@ -471,7 +529,15 @@ export default function Map(){
       }
     } else {
       ctx.fillStyle="#4CAF50";ctx.font="bold 16px Arial";ctx.textAlign="center";
-      ctx.fillText(`\u2705 Clear LOS \u2014 no height change needed`,W/2,top+30);
+      ctx.fillText(`✅ Clear LOS — no height change needed`,W/2,top+30);
+      // Fresnel recommendation
+      if(fresnelClear){
+        ctx.fillStyle="#4CAF50";ctx.font="bold 12px Arial";ctx.textAlign="center";
+        ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+48);
+      } else {
+        ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";ctx.textAlign="center";
+        ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
+      }
     }
   }, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
 
@@ -704,7 +770,74 @@ export default function Map(){
       setFccLoading(false);
     }
   }
+function updateHeatmapData(){
+    const map = mapRef.current; if(!map) return;
+    const features = nodesRef.current
+      .filter(n => n.type !== "single" && !n.outOfRange)
+      .map(n => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [n.lng, n.lat] },
+        properties: {
+          weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.7 : 0.4,
+          range: n.type === "gateway" ? 3 : n.type === "lra" ? 3 : 0.75
+        }
+      }));
+    const data = { type: "FeatureCollection", features };
+    if(map.getSource("signal-heatmap")){
+      map.getSource("signal-heatmap").setData(data);
+    }
+  }
 
+  function toggleHeatmap(){
+    const map = mapRef.current; if(!map) return;
+    if(!showHeatmap){
+      if(!heatmapLoaded.current){
+        const features = nodesRef.current
+          .filter(n => n.type !== "single" && !n.outOfRange)
+          .map(n => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [n.lng, n.lat] },
+            properties: {
+              weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.7 : 0.4,
+              range: n.type === "gateway" ? 3 : n.type === "lra" ? 3 : 0.75
+            }
+          }));
+        map.addSource("signal-heatmap", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features }
+        });
+        map.addLayer({
+          id: "signal-heatmap-layer",
+          type: "heatmap",
+          source: "signal-heatmap",
+          paint: {
+            "heatmap-weight": ["get", "weight"],
+            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 15, 2],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 15, 11, 40, 14, 80, 16, 120],
+            "heatmap-color": [
+              "interpolate", ["linear"], ["heatmap-density"],
+              0, "rgba(0,0,0,0)",
+              0.1, "rgba(0,0,255,0.2)",
+              0.3, "rgba(0,255,255,0.35)",
+              0.5, "rgba(0,255,0,0.4)",
+              0.7, "rgba(255,255,0,0.5)",
+              0.9, "rgba(255,128,0,0.6)",
+              1.0, "rgba(255,0,0,0.7)"
+            ],
+            "heatmap-opacity": 0.6
+          }
+        }, "all-nodes");
+        heatmapLoaded.current = true;
+      } else {
+        updateHeatmapData();
+        if(map.getLayer("signal-heatmap-layer")) map.setLayoutProperty("signal-heatmap-layer", "visibility", "visible");
+      }
+      setShowHeatmap(true);
+    } else {
+      if(map.getLayer("signal-heatmap-layer")) map.setLayoutProperty("signal-heatmap-layer", "visibility", "none");
+      setShowHeatmap(false);
+    }
+  }
   async function toggleFCCTowers() {
     const map = mapRef.current; if (!map) return;
     if (!showFCCTowers) {
@@ -1048,6 +1181,14 @@ return (<div style={{display:"flex",height:"100vh"}}>
 </div>)}
 <div style={{flex:1,position:"relative"}}>
   <div ref={containerRef} style={{width:"100%",height:"100%"}}/>
+  <button onClick={toggleHeatmap} style={{position:"absolute",top:10,right:170,zIndex:1000,padding:"8px 14px",
+    background:showHeatmap?"#4CAF50":"rgba(50,50,50,0.85)",
+    color:showHeatmap?"#fff":"#fff",
+    border:showHeatmap?"2px solid #388E3C":"2px solid rgba(255,255,255,0.3)",
+    borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:13,
+    backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.4)"}}>
+    {showHeatmap?"📡 Heatmap ✅":"📡 Heatmap"}
+  </button>
   <button onClick={toggleFCCTowers} style={{position:"absolute",top:10,right:10,zIndex:1000,padding:"8px 14px",
     background:showFCCTowers?"#FFD700":"rgba(50,50,50,0.85)",
     color:showFCCTowers?"#000":"#fff",
