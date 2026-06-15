@@ -153,8 +153,8 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
   // ---------- ADD NODE ----------
   function addNode(map,lng,lat,type,name=null,silent=false,customHeight=null){
     const el = document.createElement("div");
-    el.style.width = "14px";
-    el.style.height = "14px";
+    el.style.width = "18px";
+    el.style.height = "18px";
     el.style.borderRadius = "50%";
     el.style.background =
       type==="gateway" ? "blue" :
@@ -170,12 +170,16 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
     };
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat]).addTo(map);
-    el.addEventListener("click", (e) => {
+   el.addEventListener("click", (e) => {
       e.stopPropagation();
+      skipNextClick.current = true;
       setSelectedNode(node);
       setEditName(node.name);
       setEditType(node.type);
       setEditHeight(node.height);
+      if(linksRef.current[node.name]){
+        generateProfile(node);
+      }
     });
     marker.on("dragend",()=>{
       const p = marker.getLngLat();
@@ -558,8 +562,8 @@ analyzeNetwork();
       }
     }
     ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial";
-    ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
-    ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
+    ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 50);
+    ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 50);
    ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
     for(let i = 0; i <= 5; i++){
       const d = (maxDist / 5) * i;
@@ -582,29 +586,29 @@ analyzeNetwork();
         let minRightH = profileToHeight;
         for(let testH = 0; testH <= 200; testH++){ let clear=true; const t1=points[0].elev+profileFromHeight,t2=points[points.length-1].elev+testH;
           for(let i=1;i<points.length-1;i++){const t=i/(points.length-1);if(points[i].elev>t1+(t2-t1)*t){clear=false;break;}} if(clear){minRightH=testH;break;} }
-        ctx.fillStyle="#ff5555";ctx.font="bold 14px Arial";ctx.textAlign="center";ctx.fillText(`\u26A0\uFE0F LOS BLOCKED`,W/2,top+14);
+        ctx.fillStyle="#ff5555";ctx.font="bold 14px Arial";ctx.textAlign="center";ctx.fillText(`\u26A0\uFE0F LOS BLOCKED`,W/2,top+55);
         ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";
-        ctx.textAlign="left";ctx.fillText(`\u2B06\uFE0F Needs ${minLeftH}ft to clear`,left+5,top+30);
-        ctx.textAlign="right";ctx.fillText(`\u2B06\uFE0F Needs ${minRightH}ft to clear`,left+plotW-5,top+30);
+       ctx.textAlign="left";ctx.fillText(`\u2B06\uFE0F Needs ${minLeftH}ft to clear`,left+5,top+70);
+        ctx.textAlign="right";ctx.fillText(`\u2B06\uFE0F Needs ${minRightH}ft to clear`,left+plotW-5,top+70);
       } else {
         let maxBlock2=0; for(let i=0;i<points.length;i++){const t=i/(points.length-1);const diff=points[i].elev-(fromElev+(toElev-fromElev)*t);if(diff>maxBlock2)maxBlock2=diff;}
         ctx.fillStyle="#ff5555";ctx.font="bold 16px Arial";ctx.textAlign="center";
-        ctx.fillText(`\u26A0\uFE0F Increase height by ~${Math.ceil(maxBlock2+5)}ft to clear obstruction`,W/2,top+30);
+        ctx.fillText(`\u26A0\uFE0F Increase height by ~${Math.ceil(maxBlock2+5)}ft to clear obstruction`,W/2,top+65);
       }
     } else {
       ctx.fillStyle="#4CAF50";ctx.font="bold 16px Arial";ctx.textAlign="center";
-      ctx.fillText(`✅ Clear LOS — no height change needed`,W/2,top+30);
+  ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+82);
       // Fresnel recommendation
       if(fresnelClear){
         ctx.fillStyle="#4CAF50";ctx.font="bold 12px Arial";ctx.textAlign="center";
         ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+48);
       } else {
         ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";ctx.textAlign="center";
-        ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
+       ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+82);
       }
     }
  // --- FRESNEL REFERENCE CHART ---
-    const chartTop = H - 62;
+   const chartTop = top + 2;
     const chartLeft = left;
     const barH = 10;
     const barW = plotW;
@@ -1253,8 +1257,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
           else{selectedNode.height=editHeight;selectedNode.range=0.75;}
           selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
           saveSnapshot();setNodeVersion(v=>v+1);redraw();}} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>💾 Save Changes</button>
-        <button onClick={()=>{if(selectedNode)generateProfile(selectedNode);}} style={{width:"100%",marginBottom:6,background:"#8B7355",color:"white",border:"none",padding:"6px",cursor:"pointer"}}>📊 Terrain Profile</button>
-      </div>)}
+             </div>)}
     </div>)}
     <hr/>
     <div>
