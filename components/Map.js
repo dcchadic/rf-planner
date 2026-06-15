@@ -223,13 +223,12 @@ async function calcFresnelPct(p1, p2){
     }
     return worstPct;
   }
- async function computeLinks(){
+async function computeLinks(){
     linksRef.current = {};
     const sortedNodes = [...nodesRef.current].sort((x,y)=>{
       const order = {gateway:0, lra:1, sra:2};
       return order[x.type] - order[y.type];
     });
-    // FIRST PASS — closest distance (preserves mesh connectivity)
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
@@ -264,20 +263,13 @@ async function calcFresnelPct(p1, p2){
       const best = clearGateway||clearLRA||clearSRA||blockedGateway||blockedLRA||blockedSRA||null;
       if (best) linksRef.current[a.name] = best;
     }
-    // SECOND PASS — improve blocked or poor Fresnel links
+    // SECOND PASS — fix blocked links
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
       const currentLink = linksRef.current[a.name];
-      let currentFresnel = -Infinity;
-      if (currentLink) {
-        const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
-        if (currentLOS.clear) {
-          currentFresnel = await calcFresnelPct(a, currentLink);
-          if (currentFresnel >= 60) continue;
-        }
-      }
-      let bestAlt=null, bestAltFresnel=-Infinity;
+      if (currentLink) { const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height); if (currentLOS.clear) continue; }
+      let bestAlt=null,bestAltDist=Infinity;
       for (const b of nodesRef.current) {
         if (b === a) continue;
         if (currentLink && b === currentLink) continue;
@@ -292,15 +284,11 @@ async function calcFresnelPct(p1, p2){
         }
         const los = await checkLOS(a, b, a.height, b.height);
         if (!los.clear) continue;
-        const fpct = await calcFresnelPct(a, b);
-        if (fpct > bestAltFresnel) { bestAltFresnel = fpct; bestAlt = b; }
+        if (d < bestAltDist) { bestAltDist = d; bestAlt = b; }
       }
-      if (bestAlt && bestAltFresnel > currentFresnel) {
-        linksRef.current[a.name] = bestAlt;
-      }
+      if (bestAlt) linksRef.current[a.name] = bestAlt;
     }
   }
-
   function getPath(start){
     const path=[start]; let current=start;
     const visited = new Set([start.name]);
@@ -797,6 +785,83 @@ analyzeNetwork();
       if(!rescued)break;
     }
   }
+async function optimizeFresnel(){
+    let changed = false;
+    for(const a of nodesRef.current){
+      if(a.type === "gateway" || a.type === "single") continue;
+      const currentLink = linksRef.current[a.name];
+      if(!currentLink) continue;
+      const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
+      if(!currentLOS.clear) continue;
+      const currentFresnel = await calcFresnelPct(a, currentLink);
+      if(currentFresnel >= 60) continue;
+
+      // This link has poor Fresnel — look for better
+      let bestAlt = null;
+      let bestAltFresnel = currentFresnel;
+      let bestAltNeedsLRA = false;
+      let bestAltCanSRA = false;
+
+      for(const b of nodesRef.current){
+        if(b === a || b === currentLink) continue;
+        if(b.type === "single") continue;
+        const d = distance(a, b);
+
+        // Check if reachable as current type
+        let reachable = false;
+        let needsLRA = false;
+        if(b.type === "gateway" && d <= 3) reachable = true;
+        else if(b.type === "lra" && d <= 3) reachable = true;
+        else if(d <= a.range) reachable = true;
+        else if(d <= 3 && a.type === "sra"){
+          // Would need to upgrade to LRA to reach
+          needsLRA = true;
+          reachable = true;
+        }
+        if(!reachable) continue;
+
+        // Must have a path to gateway
+        const isGateway = b.type === "gateway";
+        if(!isGateway){
+          const bPath = getPath(b);
+          if(!bPath.some(n => n.type === "gateway")) continue;
+        }
+
+        const los = await checkLOS(a, b, needsLRA ? 10 : a.height, b.height);
+        if(!los.clear) continue;
+
+        const tempA = {...a, height: needsLRA ? 10 : a.height};
+        const fpct = await calcFresnelPct(tempA, b);
+        if(fpct > bestAltFresnel){
+          bestAltFresnel = fpct;
+          bestAlt = b;
+          bestAltNeedsLRA = needsLRA;
+          bestAltCanSRA = (d <= 0.75 && a.type === "lra" && !needsLRA);
+        }
+      }
+
+      if(bestAlt && bestAltFresnel > currentFresnel){
+        // Switch to better Fresnel path
+        linksRef.current[a.name] = bestAlt;
+        changed = true;
+
+        if(bestAltNeedsLRA && a.type === "sra"){
+          a.type = "lra";
+          a.height = 10;
+          a.range = 3;
+          if(a.markerElement) a.markerElement.style.background = "orange";
+        }
+
+        if(bestAltCanSRA && a.type === "lra" && !a._wasUpgraded){
+          a.type = "sra";
+          a.height = 5;
+          a.range = 0.75;
+          if(a.markerElement) a.markerElement.style.background = "green";
+        }
+      }
+    }
+    return changed;
+  }
   function redraw(){ setNodeVersion(v=>v+1); draw(); }
 
   // ========== FCC TOWER OVERLAY ==========
@@ -1176,6 +1241,7 @@ function updateHeatmapData(){
         }
       }
       await computeLinks();
+try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
      for(const node of nodesRef.current){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
@@ -1230,6 +1296,7 @@ function updateHeatmapData(){
         }
       }
      await computeLinks();
+try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
       for(const node of nodesRef.current){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
