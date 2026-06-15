@@ -32,6 +32,7 @@ export default function Map(){
   const [editName,setEditName] = useState("");
   const [editType,setEditType] = useState("");
   const [editHeight, setEditHeight] = useState(0);
+const [editHeight, setEditHeight] = useState(0);
   const [nodeVersion, setNodeVersion] = useState(0);
 
   const [showProfile, setShowProfile] = useState(false);
@@ -166,7 +167,8 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       height: customHeight || (type==="gateway"?15:type==="lra"?10:5),
       range: type==="gateway"?3:type==="lra"?3:type==="single"?0:0.75,
       name: name || `${type}-${nodesRef.current.length+1}`,
-      elevation: null, blocked: false, blockDetail: null, outOfRange: false
+    elevation: null, blocked: false, blockDetail: null, outOfRange: false,
+      modbusId: type === "gateway" ? null : nodesRef.current.filter(n => n.type !== "gateway").length + 1
     };
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat]).addTo(map);
@@ -177,6 +179,7 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       setEditName(node.name);
       setEditType(node.type);
       setEditHeight(node.height);
+      setEditModbus(node.modbusId || "");
       if(linksRef.current[node.name]){
         generateProfile(node);
       }
@@ -190,6 +193,7 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       nodesRef.current = nodesRef.current.filter(n=>n!==node);
       saveSnapshot(); redraw();
     };
+if(customHeight && !node.modbusId && type !== "gateway"){ node.modbusId = nodesRef.current.filter(n => n.type !== "gateway").length + 1; }
     node.marker = marker;
     nodesRef.current.push(node);
     if (!silent){ saveSnapshot(); redraw(); }
@@ -1115,7 +1119,7 @@ async function toggleHeatmap(){
     const fileName = prompt("Name this network:", "rf-network");
     if(!fileName) return;
     const saveData = {
-      nodes: nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range })),
+      nodes: nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range,modbusId:n.modbusId||null })),
       fccTowersVisible: showFCCTowers
     };
     const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: "application/json" });
@@ -1173,7 +1177,7 @@ async function toggleHeatmap(){
       let nodeData; let fccVisible=false;
       if(Array.isArray(raw)){nodeData=raw;}else{nodeData=raw.nodes||[];fccVisible=raw.fccTowersVisible||false;}
       nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();}); nodesRef.current=[];
-      nodeData.forEach(n=>{addNode(map,n.lng,n.lat,n.type,n.name,false,n.height);});
+      nodeData.forEach(n=>{addNode(map,n.lng,n.lat,n.type,n.name,false,n.height); if(n.modbusId) nodesRef.current[nodesRef.current.length-1].modbusId = n.modbusId;});
       if(fccVisible&&!showFCCTowers){toggleFCCTowers();}else if(!fccVisible&&showFCCTowers){toggleFCCTowers();}
       let avgLat=0,avgLng=0; for(const n of nodeData){avgLat+=n.lat;avgLng+=n.lng;} avgLat/=nodeData.length;avgLng/=nodeData.length;
       map.flyTo({center:[avgLng,avgLat],zoom:13});
@@ -1383,25 +1387,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
     <button onClick={importText} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>📍 Import Coordinates</button>
     <label style={{display:"block",width:"100%",marginBottom:6,padding:"6px",background:"#2196F3",color:"white",textAlign:"center",cursor:"pointer",border:"none",fontSize:14,boxSizing:"border-box"}}>📂 Upload Excel<input type="file" accept=".xlsx,.xls" onChange={uploadExcel} style={{display:"none"}}/></label>
     <hr/>
-    {selectedNode && (<div style={{marginTop:10}}>
-      <div style={{marginBottom:6,fontWeight:"bold",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#444",color:"white",padding:"6px 10px",borderRadius:4}} onClick={()=>setSelectedNode(selectedNode._collapsed?{...selectedNode,_collapsed:false}:{...selectedNode,_collapsed:true})}>
-        <span>✏️ Edit: {selectedNode.name}</span><span>{selectedNode._collapsed?"▼":"▲"}</span>
-      </div>
-      {!selectedNode._collapsed && (<div>
-        <input value={editName} onChange={e=>setEditName(e.target.value)} placeholder="Node Name" style={{width:"100%",marginBottom:6}}/>
-        <select value={editType} onChange={e=>{const newType=e.target.value;setEditType(newType);if(newType==="gateway")setEditHeight(15);else if(newType==="lra")setEditHeight(10);else setEditHeight(5);}} style={{width:"100%",marginBottom:6}}>
-          <option value="gateway">Gateway</option><option value="lra">LRA</option><option value="sra">SRA</option><option value="single">Single Modem</option>
-        </select>
-        <div style={{marginBottom:6}}><label style={{fontSize:12}}>Antenna Height (ft):</label><input type="number" value={editHeight} onChange={e=>setEditHeight(Number(e.target.value))} style={{width:"100%"}}/></div>
-        <button onClick={()=>{if(!selectedNode)return;selectedNode.name=editName;selectedNode.type=editType;selectedNode.outOfRange=false;
-          if(editType==="gateway"){selectedNode.height=editHeight;selectedNode.range=3;}
-          else if(editType==="lra"){selectedNode.height=editHeight;selectedNode.range=3;}
-          else if(editType==="single"){selectedNode.height=editHeight;selectedNode.range=0;}
-          else{selectedNode.height=editHeight;selectedNode.range=0.75;}
-          selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
-          saveSnapshot();setNodeVersion(v=>v+1);redraw();}} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>💾 Save Changes</button>
-             </div>)}
-    </div>)}
+    
     <hr/>
     <div>
       <div style={{fontWeight:"bold",marginBottom:6}}>Nodes ({nodesRef.current.length})</div>
@@ -1411,8 +1397,8 @@ return (<div style={{display:"flex",height:"100vh"}}>
       </div>
       {nodesRef.current.map((n,i)=>(<div key={i} style={{marginBottom:4}}>
         <span style={{color:n.outOfRange||n.type==="single"?"black":n.type==="gateway"?"blue":n.type==="lra"?"orange":"green",cursor:"pointer",textDecoration:"underline"}}
-          onClick={()=>{mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});setSelectedNode(n);setEditName(n.name);setEditType(n.type);setEditHeight(n.height);}}>
-          {n.name} ({n.type.toUpperCase()}) {n.type!=="single"?`${n.recommendedHeight||n.height} ft`:""}
+          onClick={()=>{mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});setSelectedNode(n);setEditName(n.name);setEditType(n.type);setEditHeight(n.height);setEditModbus(n.modbusId||"");}}>
+         {n.name} ({n.type.toUpperCase()}) {n.type!=="single"?`${n.recommendedHeight||n.height} ft`:""}{n.modbusId ? ` [M:${n.modbusId}]` : ""}
         </span>
         {n.elevation!==null&&(<span style={{color:"#888",fontSize:11}}>{" "}| Elev: {n.elevation}ft</span>)}
         {n.blocked&&n.blockDetail&&(<div style={{color:"red",fontSize:11,marginLeft:10}}>{n.blockDetail}</div>)}
@@ -1423,6 +1409,69 @@ return (<div style={{display:"flex",height:"100vh"}}>
       onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" 📊"}</div>))}
   </div>
 </div>
+{selectedNode && (
+  <div style={{
+    position:"absolute",
+    top:"10%",
+    right:10,
+    width:280,
+    background:"#1a1a2e",
+    border:"2px solid #00bcd4",
+    borderRadius:8,
+    zIndex:1999,
+    padding:12
+  }}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <span style={{color:"#00bcd4",fontWeight:"bold",fontSize:14}}>✏️ Edit Node</span>
+      <button onClick={()=>setSelectedNode(null)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:24,height:24,cursor:"pointer",fontWeight:"bold",fontSize:12}}>✕</button>
+    </div>
+    <div style={{marginBottom:6}}>
+      <label style={{color:"#888",fontSize:11}}>Name</label>
+      <input value={editName} onChange={e=>setEditName(e.target.value)} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
+    </div>
+    <div style={{marginBottom:6}}>
+      <label style={{color:"#888",fontSize:11}}>Type</label>
+      <select value={editType} onChange={e=>{const newType=e.target.value;setEditType(newType);if(newType==="gateway"){setEditHeight(15);setEditModbus("");}else if(newType==="lra")setEditHeight(10);else setEditHeight(5);}} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4}}>
+        <option value="gateway">Gateway</option>
+        <option value="lra">LRA</option>
+        <option value="sra">SRA</option>
+        <option value="single">Single Modem</option>
+      </select>
+    </div>
+    <div style={{marginBottom:6}}>
+      <label style={{color:"#888",fontSize:11}}>Antenna Height (ft)</label>
+      <input type="number" value={editHeight} onChange={e=>setEditHeight(Number(e.target.value))} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
+    </div>
+    {editType !== "gateway" && (
+      <div style={{marginBottom:6}}>
+        <label style={{color:"#888",fontSize:11}}>Modbus ID</label>
+        <input type="number" value={editModbus} onChange={e=>setEditModbus(Number(e.target.value))} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
+      </div>
+    )}
+    <div style={{display:"flex",gap:6}}>
+      <button onClick={()=>{
+        if(!selectedNode) return;
+        selectedNode.name = editName;
+        selectedNode.type = editType;
+        selectedNode.outOfRange = false;
+        selectedNode.modbusId = editType === "gateway" ? null : (editModbus || null);
+        if(editType==="gateway"){selectedNode.height=editHeight;selectedNode.range=3;}
+        else if(editType==="lra"){selectedNode.height=editHeight;selectedNode.range=3;}
+        else if(editType==="single"){selectedNode.height=editHeight;selectedNode.range=0;}
+        else{selectedNode.height=editHeight;selectedNode.range=0.75;}
+        selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
+        saveSnapshot();setNodeVersion(v=>v+1);redraw();
+      }} style={{flex:1,padding:"8px",background:"#4CAF50",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:"bold",fontSize:13}}>
+        💾 Save
+      </button>
+    </div>
+    {selectedNode.elevation !== null && (
+      <div style={{color:"#888",fontSize:11,marginTop:6,textAlign:"center"}}>
+        Elev: {selectedNode.elevation}ft | {selectedNode.type !== "gateway" && selectedNode.modbusId ? `Modbus: ${selectedNode.modbusId}` : ""}
+      </div>
+    )}
+  </div>
+)}
 {showProfile&&profileData&&(<div style={{position:"absolute",top:"10%",left:"15%",width:"70%",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:10}}>
   <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
     <button onClick={()=>setShowProfile(false)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontWeight:"bold",fontSize:14}}>✕</button>
