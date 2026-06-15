@@ -573,7 +573,48 @@ analyzeNetwork();
         ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
       }
     }
-  }, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
+  // --- FRESNEL REFERENCE CHART ---
+    const chartTop = H - 62;
+    const chartLeft = left;
+    const barH = 10;
+    const barW = plotW;
+    const levels = [
+      { min: 80, max: 100, color: "#4CAF50", label: "Excellent" },
+      { min: 60, max: 80, color: "#8BC34A", label: "Good" },
+      { min: 40, max: 60, color: "#FFD700", label: "Marginal" },
+      { min: 20, max: 40, color: "#FF9800", label: "Poor" },
+      { min: 0, max: 20, color: "#f44336", label: "Unreliable" }
+    ];
+    // Background
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(chartLeft - 5, chartTop - 14, barW + 10, 55);
+    // Title
+    ctx.fillStyle = "#aaa"; ctx.font = "bold 10px Arial"; ctx.textAlign = "left";
+    ctx.fillText("FRESNEL CLEARANCE", chartLeft, chartTop - 4);
+    // Draw bar segments
+    levels.forEach(lv => {
+      const x1 = chartLeft + ((100 - lv.max) / 100) * barW;
+      const w = ((lv.max - lv.min) / 100) * barW;
+      ctx.fillStyle = lv.color;
+      ctx.fillRect(x1, chartTop, w, barH);
+      // Label
+      ctx.fillStyle = "#ccc"; ctx.font = "9px Arial"; ctx.textAlign = "center";
+      ctx.fillText(lv.label, x1 + w / 2, chartTop + barH + 10);
+      ctx.fillText(`${lv.min}-${lv.max}%`, x1 + w / 2, chartTop + barH + 20);
+    });
+    // Draw current clearance marker
+    if(totalDistM > 0 && !blocked){
+      const markerX = chartLeft + ((100 - Math.max(0, Math.min(100, worstFresnelPct))) / 100) * barW;
+      ctx.beginPath();
+      ctx.moveTo(markerX, chartTop - 2);
+      ctx.lineTo(markerX - 5, chartTop - 10);
+      ctx.lineTo(markerX + 5, chartTop - 10);
+      ctx.closePath();
+      ctx.fillStyle = "#00ffff"; ctx.fill();
+      ctx.fillStyle = "#00ffff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
+      ctx.fillText(`▼ ${Math.max(0, worstFresnelPct).toFixed(0)}%`, markerX, chartTop - 12);
+    }
+}, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
 
   function saveSnapshot(){
     const snap = nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range }));
@@ -1212,11 +1253,31 @@ return (<div style={{display:"flex",height:"100vh"}}>
       <button onClick={()=>{profileData.to.type=profileToType;profileData.to.outOfRange=false;profileData.to.height=profileToHeight;profileData.to.range=profileToType==="single"?0:profileToType==="sra"?0.75:3;if(profileData.to.markerElement){profileData.to.markerElement.style.background=profileToType==="gateway"?"blue":profileToType==="lra"?"orange":profileToType==="single"?"black":"green";}redraw();}} style={{background:"#4CAF50",color:"white",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10}}>Apply</button>
     </div>
   </div>
-  <canvas ref={canvasRef} width={800} height={350} style={{width:"100%",height:"auto"}}/>
+ <canvas ref={canvasRef} width={800} height={350} style={{width:"100%",height:"auto"}}/>
 </div>)}
 <div style={{flex:1,position:"relative"}}>
   <div ref={containerRef} style={{width:"100%",height:"100%"}}/>
-  <button onClick={toggleHeatmap} style={{position:"absolute",top:10,right:170,zIndex:1000,padding:"8px 14px",
+  {showHeatmap && (
+    <div style={{position:"absolute",bottom:30,right:10,zIndex:1000,background:"rgba(20,20,30,0.9)",
+      border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"10px 14px",
+      backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)"}}>
+      <div style={{color:"#fff",fontWeight:"bold",fontSize:12,marginBottom:6}}>📡 Signal Coverage</div>
+      {[
+        {color:"#ff0000",label:"Strong (Gateway)"},
+        {color:"#ff8000",label:"Good"},
+        {color:"#ffff00",label:"Moderate"},
+        {color:"#00ff00",label:"Fair"},
+        {color:"#00ffff",label:"Weak"},
+        {color:"#0000ff",label:"Fringe"}
+      ].map((item,i) => (
+        <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+          <div style={{width:16,height:10,borderRadius:2,background:item.color,opacity:0.8}}/>
+          <span style={{color:"#ccc",fontSize:11}}>{item.label}</span>
+        </div>
+      ))}
+    </div>
+  )}
+<button onClick={toggleHeatmap} style={{position:"absolute",top:10,right:170,zIndex:1000,padding:"8px 14px",
     background:showHeatmap?"#4CAF50":"rgba(50,50,50,0.85)",
     color:showHeatmap?"#fff":"#fff",
     border:showHeatmap?"2px solid #388E3C":"2px solid rgba(255,255,255,0.3)",
