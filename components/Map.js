@@ -876,7 +876,15 @@ export default function Map(){
         }
       }
       await computeLinks();
-      for(const node of nodesRef.current){if(node.type==="gateway")continue;const path=getPath(node);if(!path.some(n=>n.type==="gateway")){recs.push({text:`\u26A0\uFE0F ${node.name.toUpperCase()}: Cannot reach gateway \u2014 consider repositioning`});}}
+      for(const node of nodesRef.current){
+        if(node.type==="gateway"||node.type==="single") continue;
+        const path=getPath(node);
+        if(!path.some(n=>n.type==="gateway")){
+          node.type="single"; node.range=0; node.outOfRange=false;
+          if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
+          recs.push({text:`⚫ ${node.name.toUpperCase()}: No gateway path — set as Single Modem`});
+        }
+      }
     }catch(e){console.log("Optimize error:",e);}
     draw();setRecommendations(prev=>[...prev,...recs]);
   }
@@ -916,7 +924,15 @@ export default function Map(){
           for(let bh=10;bh<=30;bh+=5){for(let nh=5;nh<=30;nh+=5){const testLos=await checkLOS(bridge,node,bh,nh);if(testLos.clear){bridge.type="lra";bridge.height=bh;bridge.range=3;if(bridge.markerElement)bridge.markerElement.style.background="orange";if(nh>5){node.type="lra";node.height=nh;node.range=3;if(node.markerElement)node.markerElement.style.background="orange";}await computeLinks();break;}}if(bridge.type==="lra")break;}if(bridge.type==="lra")break;
         }
       }
-      await computeLinks();
+     await computeLinks();
+      for(const node of nodesRef.current){
+        if(node.type==="gateway"||node.type==="single") continue;
+        const path=getPath(node);
+        if(!path.some(n=>n.type==="gateway")){
+          node.type="single"; node.range=0; node.outOfRange=false;
+          if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
+        }
+      }
     }catch(e){console.log("Auto-optimize error:",e);}
     draw();setRecommendations(prev=>[...prev,...recs]);setShowOptimizePrompt(false);setNodeVersion(v=>v+1);
   }
