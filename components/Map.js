@@ -196,6 +196,33 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
   }
 
   // ---------- ROUTING ----------
+async function calcFresnelPct(p1, p2){
+    const d = distance(p1, p2);
+    const totalDistM = d * 1609.34;
+    const wl = 0.333;
+    if(totalDistM <= 0) return 100;
+    const elev1 = await getElevation(p1.lng, p1.lat);
+    const elev2 = await getElevation(p2.lng, p2.lat);
+    const tip1 = elev1 + p1.height;
+    const tip2 = elev2 + p2.height;
+    let worstPct = 100;
+    const steps = 20;
+    for(let s = 1; s < steps; s++){
+      const t = s / steps;
+      const d1m = t * totalDistM;
+      const d2m = totalDistM - d1m;
+      const fR = (d1m > 0 && d2m > 0) ? Math.sqrt(wl * d1m * d2m / totalDistM) * 3.281 : 0;
+      if(fR <= 0) continue;
+      const lng = p1.lng + (p2.lng - p1.lng) * t;
+      const lat = p1.lat + (p2.lat - p1.lat) * t;
+      const ev = await getElevation(lng, lat);
+      const losE = tip1 + (tip2 - tip1) * t;
+      const cl = losE - ev;
+      const pct = (cl / fR) * 100;
+      if(pct < worstPct) worstPct = pct;
+    }
+    return worstPct;
+  }
   async function computeLinks(){
     linksRef.current = {};
     const sortedNodes = [...nodesRef.current].sort((x,y)=>{
@@ -205,12 +232,12 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
-      let clearGateway=null,clearGatewayDist=Infinity;
-      let clearLRA=null,clearLRADist=Infinity;
-      let clearSRA=null,clearSRADist=Infinity;
-      let blockedGateway=null,blockedGatewayDist=Infinity;
-      let blockedLRA=null,blockedLRADist=Infinity;
-      let blockedSRA=null,blockedSRADist=Infinity;
+      let bestGateway=null, bestGatewayFresnel=-Infinity;
+      let bestLRA=null, bestLRAFresnel=-Infinity;
+      let bestSRA=null, bestSRAFresnel=-Infinity;
+      let blockedGateway=null, blockedGatewayDist=Infinity;
+      let blockedLRA=null, blockedLRADist=Infinity;
+      let blockedSRA=null, blockedSRADist=Infinity;
       for (const b of nodesRef.current) {
         if (b === a) continue;
         const d = distance(a, b);
@@ -226,23 +253,34 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
         if (!isGateway && !hasMeshPath) continue;
         const los = await checkLOS(a, b, a.height, b.height);
         const isLRA = b.type === "lra";
-        if(isGateway && los.clear && d<clearGatewayDist){clearGateway=b;clearGatewayDist=d;}
-        else if(isGateway && !los.clear && d<blockedGatewayDist){blockedGateway=b;blockedGatewayDist=d;}
-        else if(isLRA && los.clear && d<clearLRADist){clearLRA=b;clearLRADist=d;}
-        else if(isLRA && !los.clear && d<blockedLRADist){blockedLRA=b;blockedLRADist=d;}
-        else if(!isGateway && !isLRA && los.clear && d<clearSRADist){clearSRA=b;clearSRADist=d;}
-        else if(!isGateway && !isLRA && !los.clear && d<blockedSRADist){blockedSRA=b;blockedSRADist=d;}
+        if(los.clear){
+          const fpct = await calcFresnelPct(a, b);
+          if(isGateway && fpct > bestGatewayFresnel){ bestGateway=b; bestGatewayFresnel=fpct; }
+          else if(isLRA && fpct > bestLRAFresnel){ bestLRA=b; bestLRAFresnel=fpct; }
+          else if(!isGateway && !isLRA && fpct > bestSRAFresnel){ bestSRA=b; bestSRAFresnel=fpct; }
+        } else {
+          if(isGateway && d < blockedGatewayDist){ blockedGateway=b; blockedGatewayDist=d; }
+          else if(isLRA && d < blockedLRADist){ blockedLRA=b; blockedLRADist=d; }
+          else if(!isGateway && !isLRA && d < blockedSRADist){ blockedSRA=b; blockedSRADist=d; }
+        }
       }
-      const best = clearGateway||clearLRA||clearSRA||blockedGateway||blockedLRA||blockedSRA||null;
+      const best = bestGateway||bestLRA||bestSRA||blockedGateway||blockedLRA||blockedSRA||null;
       if (best) linksRef.current[a.name] = best;
     }
-    // SECOND PASS
+    // SECOND PASS — improve poor Fresnel or blocked links
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
       const currentLink = linksRef.current[a.name];
-      if (currentLink) { const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height); if (currentLOS.clear) continue; }
-      let bestAlt=null,bestAltDist=Infinity;
+      let currentFresnel = -Infinity;
+      if (currentLink) {
+        const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
+        if (currentLOS.clear) {
+          currentFresnel = await calcFresnelPct(a, currentLink);
+          if (currentFresnel >= 60) continue;
+        }
+      }
+      let bestAlt=null, bestAltFresnel=-Infinity;
       for (const b of nodesRef.current) {
         if (b === a) continue;
         if (currentLink && b === currentLink) continue;
@@ -257,9 +295,12 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
         }
         const los = await checkLOS(a, b, a.height, b.height);
         if (!los.clear) continue;
-        if (d < bestAltDist) { bestAltDist = d; bestAlt = b; }
+        const fpct = await calcFresnelPct(a, b);
+        if (fpct > bestAltFresnel) { bestAltFresnel = fpct; bestAlt = b; }
       }
-      if (bestAlt) linksRef.current[a.name] = bestAlt;
+      if (bestAlt && bestAltFresnel > currentFresnel) {
+        linksRef.current[a.name] = bestAlt;
+      }
     }
   }
 
@@ -315,10 +356,10 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
     map.addSource("all-nodes", { type: "geojson", data: { type: "FeatureCollection", features: nodeFeatures } });
     map.addLayer({
       id: "all-nodes", type: "symbol", source: "all-nodes",
-      layout: { "text-field": ["get", "text"], "text-size": 12,
+     layout: { "text-field": ["get", "text"], "text-size": 13, "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
         "text-variable-anchor": ["top","bottom","left","right"],
         "text-radial-offset": 1.2, "text-justify": "auto", "text-allow-overlap": false },
-      paint: { "text-color": "#ffffff", "text-halo-color": "#000000", "text-halo-width": 1 }
+     paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
     });
     const drawnLinks = new Set();
     for(let i=0;i<nodesRef.current.length;i++){
