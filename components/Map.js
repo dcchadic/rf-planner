@@ -31,7 +31,8 @@ export default function Map(){
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
   const [editType,setEditType] = useState("");
-  const [editHeight, setEditHeight] = useState(0);
+ const [editHeight, setEditHeight] = useState(0);
+  const [editModbus, setEditModbus] = useState("");
   const [nodeVersion, setNodeVersion] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
   const [profileData, setProfileData] = useState(null);
