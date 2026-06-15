@@ -179,10 +179,15 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       setEditType(node.type);
       setEditHeight(node.height);
       setEditModbus(node.modbusId || "");
-      if(linksRef.current[node.name]){
-        generateProfile(node);
-      }
-    });
+if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]){
+        try{ generateProfile(node); }catch(err){ console.log("Profile error:", err); }
+      } else {
+        // No profile — show empty profile popup for edit only
+        setProfileData({ from: node, to: node, points: [{dist:0,elev:0,lng:node.lng,lat:node.lat}], totalDist: 0, isMeasure: false });
+        setProfileFromHeight(node.height); setProfileToHeight(node.height);
+        setProfileFromType(node.type); setProfileToType(node.type);
+        setShowProfile(true);
+      }    });
     marker.on("dragend",()=>{
       const p = marker.getLngLat();
       node.lng=p.lng; node.lat=p.lat; node.elevation = null; redraw();
@@ -486,6 +491,17 @@ analyzeNetwork();
   // DRAW TERRAIN PROFILE ON CANVAS
   useEffect(() => {
     if(!showProfile || !profileData || !canvasRef.current) return;
+    if(!profileData.points || profileData.points.length < 2 || profileData.totalDist <= 0){
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#00bcd4"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+      ctx.fillText(`${profileData.from.name} (${profileData.from.type.toUpperCase()})`, canvas.width/2, canvas.height/2 - 10);
+      ctx.fillStyle = "#888"; ctx.font = "12px Arial";
+      ctx.fillText("No link connection — edit node below", canvas.width/2, canvas.height/2 + 15);
+      return;
+    }
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
@@ -1408,45 +1424,6 @@ return (<div style={{display:"flex",height:"100vh"}}>
       onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" 📊"}</div>))}
   </div>
 </div>
-{selectedNode && (
-  <div style={{
-    position:"absolute",
-    top:"10%",
-    right:10,
-    width:280,
-    background:"#1a1a2e",
-    border:"2px solid #00bcd4",
-    borderRadius:8,
-    zIndex:1999,
-    padding:12
-  }}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-      <span style={{color:"#00bcd4",fontWeight:"bold",fontSize:14}}>✏️ Edit Node</span>
-      <button onClick={()=>setSelectedNode(null)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:24,height:24,cursor:"pointer",fontWeight:"bold",fontSize:12}}>✕</button>
-    </div>
-    <div style={{marginBottom:6}}>
-      <label style={{color:"#888",fontSize:11}}>Name</label>
-      <input value={editName} onChange={e=>setEditName(e.target.value)} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
-    </div>
-    <div style={{marginBottom:6}}>
-      <label style={{color:"#888",fontSize:11}}>Type</label>
-      <select value={editType} onChange={e=>{const newType=e.target.value;setEditType(newType);if(newType==="gateway"){setEditHeight(15);setEditModbus("");}else if(newType==="lra")setEditHeight(10);else setEditHeight(5);}} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4}}>
-        <option value="gateway">Gateway</option>
-        <option value="lra">LRA</option>
-        <option value="sra">SRA</option>
-        <option value="single">Single Modem</option>
-      </select>
-    </div>
-    <div style={{marginBottom:6}}>
-      <label style={{color:"#888",fontSize:11}}>Antenna Height (ft)</label>
-      <input type="number" value={editHeight} onChange={e=>setEditHeight(Number(e.target.value))} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
-    </div>
-    {editType !== "gateway" && (
-      <div style={{marginBottom:6}}>
-        <label style={{color:"#888",fontSize:11}}>Modbus ID</label>
-        <input type="number" value={editModbus} onChange={e=>setEditModbus(Number(e.target.value))} style={{width:"100%",padding:4,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,boxSizing:"border-box"}}/>
-      </div>
-    )}
     <div style={{display:"flex",gap:6}}>
       <button onClick={()=>{
         if(!selectedNode) return;
@@ -1496,6 +1473,47 @@ return (<div style={{display:"flex",height:"100vh"}}>
     </div>
   </div>
  <canvas ref={canvasRef} width={800} height={460} style={{width:"100%",height:"auto"}}/>
+  {selectedNode && (
+    <div style={{display:"flex",gap:8,marginTop:8,padding:"8px 4px",borderTop:"1px solid #333",alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:4}}>
+        <label style={{color:"#888",fontSize:11}}>Name:</label>
+        <input value={editName} onChange={e=>setEditName(e.target.value)} style={{width:120,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:4}}>
+        <label style={{color:"#888",fontSize:11}}>Type:</label>
+        <select value={editType} onChange={e=>{const t=e.target.value;setEditType(t);if(t==="gateway"){setEditHeight(15);setEditModbus("");}else if(t==="lra")setEditHeight(10);else setEditHeight(5);}} style={{padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}>
+          <option value="gateway">Gateway</option>
+          <option value="lra">LRA</option>
+          <option value="sra">SRA</option>
+          <option value="single">Single</option>
+        </select>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:4}}>
+        <label style={{color:"#888",fontSize:11}}>Height:</label>
+        <input type="number" value={editHeight} onChange={e=>setEditHeight(Number(e.target.value))} style={{width:50,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
+        <span style={{color:"#888",fontSize:10}}>ft</span>
+      </div>
+      {editType !== "gateway" && (
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <label style={{color:"#888",fontSize:11}}>Modbus:</label>
+          <input type="number" value={editModbus} onChange={e=>setEditModbus(Number(e.target.value))} style={{width:50,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
+        </div>
+      )}
+      <button onClick={()=>{
+        if(!selectedNode) return;
+        selectedNode.name=editName;selectedNode.type=editType;selectedNode.outOfRange=false;
+        selectedNode.modbusId=editType==="gateway"?null:(editModbus||null);
+        if(editType==="gateway"){selectedNode.height=editHeight;selectedNode.range=3;}
+        else if(editType==="lra"){selectedNode.height=editHeight;selectedNode.range=3;}
+        else if(editType==="single"){selectedNode.height=editHeight;selectedNode.range=0;}
+        else{selectedNode.height=editHeight;selectedNode.range=0.75;}
+        selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
+        saveSnapshot();setNodeVersion(v=>v+1);redraw();
+      }} style={{padding:"4px 12px",background:"#4CAF50",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:"bold",fontSize:11}}>
+        💾 Save
+      </button>
+    </div>
+  )}
 </div>)}
 <div style={{flex:1,position:"relative"}}>
   <div ref={containerRef} style={{width:"100%",height:"100%"}}/>
