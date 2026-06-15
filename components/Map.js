@@ -1161,7 +1161,7 @@ function updateHeatmapData(){
           if(score>bestScore){bestScore=score;bestCandidate=node;}
         }
         if(!bestCandidate)break;
-        bestCandidate.type="lra";bestCandidate.height=10;bestCandidate.range=3;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
+        bestCandidate.type="lra";bestCandidate.height=10;bestCandidate.range=3;bestCandidate._wasUpgraded=true;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
         recs.push({text:`\u2B06\uFE0F ${bestCandidate.name.toUpperCase()} upgraded to LRA (needed for connectivity)`});
         await computeLinks();
       }
@@ -1176,13 +1176,18 @@ function updateHeatmapData(){
         }
       }
       await computeLinks();
-      for(const node of nodesRef.current){
+     for(const node of nodesRef.current){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
         if(!path.some(n=>n.type==="gateway")){
-          node.type="single"; node.range=0; node.outOfRange=false;
-          if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
-          recs.push({text:`⚫ ${node.name.toUpperCase()}: No gateway path — set as Single Modem`});
+          // Only demote to single if it was upgraded to LRA during optimization but still can't connect
+          if(node.type==="lra" && node._wasUpgraded){
+            node.type="single"; node.range=0; node.outOfRange=false;
+            if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
+            recs.push({text:`⚫ ${node.name.toUpperCase()}: No gateway path — set as Single Modem`});
+          } else {
+            recs.push({text:`⚠️ ${node.name.toUpperCase()}: Cannot reach gateway — consider repositioning or adding LRA`});
+          }
         }
       }
     }catch(e){console.log("Optimize error:",e);}
@@ -1211,7 +1216,7 @@ function updateHeatmapData(){
           if(score>bestScore){bestScore=score;bestCandidate=node;}
         }
         if(!bestCandidate)break;
-        bestCandidate.type="lra";bestCandidate.range=3;bestCandidate.height=10;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
+        bestCandidate.type="lra";bestCandidate.range=3;bestCandidate.height=10;bestCandidate._wasUpgraded=true;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
         await computeLinks();
       }
       await optimizeHeights();await computeLinks();
@@ -1229,8 +1234,10 @@ function updateHeatmapData(){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
         if(!path.some(n=>n.type==="gateway")){
-          node.type="single"; node.range=0; node.outOfRange=false;
-          if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
+          if(node.type==="lra" && node._wasUpgraded){
+            node.type="single"; node.range=0; node.outOfRange=false;
+            if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
+          }
         }
       }
     }catch(e){console.log("Auto-optimize error:",e);}
