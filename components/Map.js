@@ -223,21 +223,22 @@ async function calcFresnelPct(p1, p2){
     }
     return worstPct;
   }
-  async function computeLinks(){
+ async function computeLinks(){
     linksRef.current = {};
     const sortedNodes = [...nodesRef.current].sort((x,y)=>{
       const order = {gateway:0, lra:1, sra:2};
       return order[x.type] - order[y.type];
     });
+    // FIRST PASS — closest distance (preserves mesh connectivity)
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
-      let bestGateway=null, bestGatewayFresnel=-Infinity;
-      let bestLRA=null, bestLRAFresnel=-Infinity;
-      let bestSRA=null, bestSRAFresnel=-Infinity;
-      let blockedGateway=null, blockedGatewayDist=Infinity;
-      let blockedLRA=null, blockedLRADist=Infinity;
-      let blockedSRA=null, blockedSRADist=Infinity;
+      let clearGateway=null,clearGatewayDist=Infinity;
+      let clearLRA=null,clearLRADist=Infinity;
+      let clearSRA=null,clearSRADist=Infinity;
+      let blockedGateway=null,blockedGatewayDist=Infinity;
+      let blockedLRA=null,blockedLRADist=Infinity;
+      let blockedSRA=null,blockedSRADist=Infinity;
       for (const b of nodesRef.current) {
         if (b === a) continue;
         const d = distance(a, b);
@@ -253,21 +254,17 @@ async function calcFresnelPct(p1, p2){
         if (!isGateway && !hasMeshPath) continue;
         const los = await checkLOS(a, b, a.height, b.height);
         const isLRA = b.type === "lra";
-        if(los.clear){
-          const fpct = await calcFresnelPct(a, b);
-          if(isGateway && fpct > bestGatewayFresnel){ bestGateway=b; bestGatewayFresnel=fpct; }
-          else if(isLRA && fpct > bestLRAFresnel){ bestLRA=b; bestLRAFresnel=fpct; }
-          else if(!isGateway && !isLRA && fpct > bestSRAFresnel){ bestSRA=b; bestSRAFresnel=fpct; }
-        } else {
-          if(isGateway && d < blockedGatewayDist){ blockedGateway=b; blockedGatewayDist=d; }
-          else if(isLRA && d < blockedLRADist){ blockedLRA=b; blockedLRADist=d; }
-          else if(!isGateway && !isLRA && d < blockedSRADist){ blockedSRA=b; blockedSRADist=d; }
-        }
+        if(isGateway && los.clear && d<clearGatewayDist){clearGateway=b;clearGatewayDist=d;}
+        else if(isGateway && !los.clear && d<blockedGatewayDist){blockedGateway=b;blockedGatewayDist=d;}
+        else if(isLRA && los.clear && d<clearLRADist){clearLRA=b;clearLRADist=d;}
+        else if(isLRA && !los.clear && d<blockedLRADist){blockedLRA=b;blockedLRADist=d;}
+        else if(!isGateway && !isLRA && los.clear && d<clearSRADist){clearSRA=b;clearSRADist=d;}
+        else if(!isGateway && !isLRA && !los.clear && d<blockedSRADist){blockedSRA=b;blockedSRADist=d;}
       }
-      const best = bestGateway||bestLRA||bestSRA||blockedGateway||blockedLRA||blockedSRA||null;
+      const best = clearGateway||clearLRA||clearSRA||blockedGateway||blockedLRA||blockedSRA||null;
       if (best) linksRef.current[a.name] = best;
     }
-    // SECOND PASS — improve poor Fresnel or blocked links
+    // SECOND PASS — improve blocked or poor Fresnel links
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
