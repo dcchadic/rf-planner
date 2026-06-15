@@ -360,11 +360,33 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
               const losE = tip1f + (tip2f - tip1f) * t2;
               const cl = losE - ev;
               const pct2 = (cl / fR) * 100;
-              if(pct2 < fresnelPct) fresnelPct = pct2;
+             if(pct2 < fresnelPct) fresnelPct = pct2;
             }
           }
         }
-        const lineColor = !los.clear ? "red" : fresnelPct < 60 ? "white" : signal > -70 ? "green" : signal > -85 ? "yellow" : signal > -100 ? "orange" : "red";
+        let lineColor = "red";
+        if(los.clear){
+          const fp = Math.max(0, Math.min(100, fresnelPct));
+          const stops = [
+            { pct: 0, r: 244, g: 67, b: 54 },
+            { pct: 20, r: 255, g: 152, b: 0 },
+            { pct: 40, r: 255, g: 215, b: 0 },
+            { pct: 60, r: 139, g: 195, b: 74 },
+            { pct: 80, r: 76, g: 175, b: 80 },
+            { pct: 100, r: 46, g: 125, b: 50 }
+          ];
+          let lower = stops[0], upper = stops[stops.length - 1];
+          for(let s = 0; s < stops.length - 1; s++){
+            if(fp >= stops[s].pct && fp <= stops[s + 1].pct){ lower = stops[s]; upper = stops[s + 1]; break; }
+          }
+          const range = upper.pct - lower.pct || 1;
+          const t = (fp - lower.pct) / range;
+          const r = Math.round(lower.r + (upper.r - lower.r) * t);
+          const g = Math.round(lower.g + (upper.g - lower.g) * t);
+          const b = Math.round(lower.b + (upper.b - lower.b) * t);
+          lineColor = `rgb(${r},${g},${b})`;
+        }
+const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPct)) / 10 : 0;
         map.addLayer({ id:lineId, type:"line", source:lineId, paint:{
           "line-color": lineColor,
           "line-width":3 }
@@ -384,7 +406,7 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
         if (map.getSource(labelId)) { try { map.removeLayer(labelId); map.removeSource(labelId); } catch {} }
         map.addSource(labelId,{ type:"geojson", data:{ type:"Feature",
           geometry:{ type:"Point", coordinates:[(p1.lng+p2.lng)/2,(p1.lat+p2.lat)/2] },
-          properties:{ text: los.clear ? `${d.toFixed(2)} mi | ${signal.toFixed(0)} dBm` : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft` } } });
+         properties:{ text: los.clear ? `${d.toFixed(2)} mi | ${(signal - fresnelLoss).toFixed(0)} dBm${fresnelLoss > 0 ? ` (F: -${fresnelLoss.toFixed(0)})` : ""}` : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft` } } });
         map.addLayer({ id:labelId, type:"symbol", source:labelId,
           layout:{ "text-field":["get","text"], "text-size":13,
             "text-variable-anchor":["top","bottom","left","right"],
@@ -548,7 +570,9 @@ analyzeNetwork();
       ctx.fillText(`${d.toFixed(2)}mi`, x, top + plotH + 21);
     }
     const signal = calcPower(maxDist);
-    const statusText = blocked ? "\u26F0\uFE0F LOS BLOCKED" : `\u2705 LOS Clear | ${signal.toFixed(0)} dBm`;
+    const profileFresnelLoss = (!blocked && worstFresnelPct < 60) ? (60 - Math.max(0, worstFresnelPct)) / 10 : 0;
+    const adjSignal = signal - profileFresnelLoss;
+    const statusText = blocked ? "\u26F0\uFE0F LOS BLOCKED" : `\u2705 LOS Clear | ${adjSignal.toFixed(0)} dBm${profileFresnelLoss > 0 ? ` (Fresnel: -${profileFresnelLoss.toFixed(1)} dB)` : ""}`;
     ctx.fillText(`${profileData.totalDist.toFixed(2)} mi | ${statusText}`, W / 2, H - 5);
     if(blocked){
       if(profileData.isMeasure){
