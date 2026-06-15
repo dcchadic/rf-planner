@@ -1449,25 +1449,11 @@ return (<div style={{display:"flex",height:"100vh"}}>
     </div>
   </div>
  <canvas ref={canvasRef} width={800} height={460} style={{width:"100%",height:"auto"}}/>
-  {selectedNode && (
+ {selectedNode && (
     <div style={{display:"flex",gap:8,marginTop:8,padding:"8px 4px",borderTop:"1px solid #333",alignItems:"center",flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:4}}>
         <label style={{color:"#888",fontSize:11}}>Name:</label>
-        <input value={editName} onChange={e=>setEditName(e.target.value)} style={{width:120,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
-      </div>
-      <div style={{display:"flex",alignItems:"center",gap:4}}>
-        <label style={{color:"#888",fontSize:11}}>Type:</label>
-        <select value={editType} onChange={e=>{const t=e.target.value;setEditType(t);if(t==="gateway"){setEditHeight(15);setEditModbus("");}else if(t==="lra")setEditHeight(10);else setEditHeight(5);}} style={{padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}>
-          <option value="gateway">Gateway</option>
-          <option value="lra">LRA</option>
-          <option value="sra">SRA</option>
-          <option value="single">Single</option>
-        </select>
-      </div>
-      <div style={{display:"flex",alignItems:"center",gap:4}}>
-        <label style={{color:"#888",fontSize:11}}>Height:</label>
-        <input type="number" value={editHeight} onChange={e=>setEditHeight(Number(e.target.value))} style={{width:50,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
-        <span style={{color:"#888",fontSize:10}}>ft</span>
+        <input value={editName} onChange={e=>setEditName(e.target.value)} style={{width:160,padding:3,background:"#333",color:"white",border:"1px solid #555",borderRadius:4,fontSize:11}}/>
       </div>
       {editType !== "gateway" && (
         <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -1477,13 +1463,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
       )}
       <button onClick={()=>{
         if(!selectedNode) return;
-        selectedNode.name=editName;selectedNode.type=editType;selectedNode.outOfRange=false;
-        selectedNode.modbusId=editType==="gateway"?null:(editModbus||null);
-        if(editType==="gateway"){selectedNode.height=editHeight;selectedNode.range=3;}
-        else if(editType==="lra"){selectedNode.height=editHeight;selectedNode.range=3;}
-        else if(editType==="single"){selectedNode.height=editHeight;selectedNode.range=0;}
-        else{selectedNode.height=editHeight;selectedNode.range=0.75;}
-        selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
+        selectedNode.name=editName;selectedNode.modbusId=selectedNode.type==="gateway"?null:(editModbus||null);
         saveSnapshot();setNodeVersion(v=>v+1);redraw();
       }} style={{padding:"4px 12px",background:"#4CAF50",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:"bold",fontSize:11}}>
         💾 Save
