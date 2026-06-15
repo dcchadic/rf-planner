@@ -510,7 +510,7 @@ analyzeNetwork();
     const minElev = Math.min(...points.map(p => p.elev)) - padElev;
     const maxElev = Math.max(...points.map(p => p.elev)) + padElev + profileData.from.height + profileData.to.height;
     const maxDist = profileData.totalDist;
-     const left = 65, right = 25, top = 95, bottom = 45;
+     const left = 65, right = 25, top = 85, bottom = 40;
     const plotW = W - left - right, plotH = H - top - bottom;
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, W, H);
@@ -1424,11 +1424,11 @@ return (<div style={{display:"flex",height:"100vh"}}>
       onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" 📊"}</div>))}
   </div>
 </div>
-   {showProfile&&profileData&&(<div style={{position:"absolute",top:"10%",left:"15%",width:"70%",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:10}}>
-  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
+   {showProfile&&profileData&&(<div style={{position:"absolute",top:"2%",left:"10%",width:"80%",maxHeight:"96vh",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:8,overflow:"auto"}}>
+ <div style={{display:"flex",justifyContent:"flex-end",marginBottom:2}}>
     <button onClick={()=>setShowProfile(false)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontWeight:"bold",fontSize:14}}>✕</button>
   </div>
-  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
     <div style={{display:"flex",alignItems:"center",gap:4}}>
       <span style={{color:"#00bcd4",fontSize:11}}>{profileData.from.name}:</span>
       <select value={profileFromType} onChange={e=>{const t=e.target.value;setProfileFromType(t);if(t==="gateway")setProfileFromHeight(15);else if(t==="lra")setProfileFromHeight(10);else if(t==="single")setProfileFromHeight(0);else setProfileFromHeight(5);}} style={{background:"#333",color:"white",border:"1px solid #00bcd4",borderRadius:4,padding:2,fontSize:11}}>
@@ -1448,7 +1448,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
       <button onClick={()=>{profileData.to.type=profileToType;profileData.to.outOfRange=false;profileData.to.height=profileToHeight;profileData.to.range=profileToType==="single"?0:profileToType==="sra"?0.75:3;if(profileData.to.markerElement){profileData.to.markerElement.style.background=profileToType==="gateway"?"blue":profileToType==="lra"?"orange":profileToType==="single"?"black":"green";}redraw();}} style={{background:"#4CAF50",color:"white",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10}}>Apply</button>
     </div>
   </div>
- <canvas ref={canvasRef} width={800} height={460} style={{width:"100%",height:"auto"}}/>
+<canvas ref={canvasRef} width={800} height={380} style={{width:"100%",height:"auto"}}/>
  {selectedNode && (
     <div style={{display:"flex",gap:8,marginTop:8,padding:"8px 4px",borderTop:"1px solid #333",alignItems:"center",flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:4}}>
