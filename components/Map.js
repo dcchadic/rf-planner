@@ -538,9 +538,15 @@ analyzeNetwork();
     ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial";
     ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
     ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
-    ctx.fillStyle = "#888"; ctx.font = "11px Arial";
-    for(let i = 0; i <= 5; i++){ const d = (maxDist / 5) * i; const x = left + (d / maxDist) * plotW; ctx.fillText(`${d.toFixed(2)}mi`, x, top + plotH + 20); }
-    ctx.fillStyle = "#ffffff"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
+   ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
+    for(let i = 0; i <= 5; i++){
+      const d = (maxDist / 5) * i;
+      const x = left + (d / maxDist) * plotW;
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(x - 22, top + plotH + 8, 44, 16);
+      ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
+      ctx.fillText(`${d.toFixed(2)}mi`, x, top + plotH + 21);
+    }
     const signal = calcPower(maxDist);
     const statusText = blocked ? "\u26F0\uFE0F LOS BLOCKED" : `\u2705 LOS Clear | ${signal.toFixed(0)} dBm`;
     ctx.fillText(`${profileData.totalDist.toFixed(2)} mi | ${statusText}`, W / 2, H - 5);
@@ -573,17 +579,18 @@ analyzeNetwork();
         ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
       }
     }
-  // --- FRESNEL REFERENCE CHART ---
+ // --- FRESNEL REFERENCE CHART ---
     const chartTop = H - 62;
     const chartLeft = left;
     const barH = 10;
     const barW = plotW;
-    const levels = [
-      { min: 80, max: 100, color: "#4CAF50", label: "Excellent" },
-      { min: 60, max: 80, color: "#8BC34A", label: "Good" },
-      { min: 40, max: 60, color: "#FFD700", label: "Marginal" },
-      { min: 20, max: 40, color: "#FF9800", label: "Poor" },
-      { min: 0, max: 20, color: "#f44336", label: "Unreliable" }
+    const gradStops = [
+      { pct: 0, r: 244, g: 67, b: 54 },
+      { pct: 20, r: 255, g: 152, b: 0 },
+      { pct: 40, r: 255, g: 215, b: 0 },
+      { pct: 60, r: 139, g: 195, b: 74 },
+      { pct: 80, r: 76, g: 175, b: 80 },
+      { pct: 100, r: 46, g: 125, b: 50 }
     ];
     // Background
     ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -591,16 +598,33 @@ analyzeNetwork();
     // Title
     ctx.fillStyle = "#aaa"; ctx.font = "bold 10px Arial"; ctx.textAlign = "left";
     ctx.fillText("FRESNEL CLEARANCE", chartLeft, chartTop - 4);
-    // Draw bar segments
-    levels.forEach(lv => {
-      const x1 = chartLeft + ((100 - lv.max) / 100) * barW;
-      const w = ((lv.max - lv.min) / 100) * barW;
-      ctx.fillStyle = lv.color;
-      ctx.fillRect(x1, chartTop, w, barH);
-      // Label
+    // Draw gradient bar
+    const barGrad = ctx.createLinearGradient(chartLeft + barW, chartTop, chartLeft, chartTop);
+    gradStops.forEach(s => {
+      barGrad.addColorStop(s.pct / 100, `rgb(${s.r},${s.g},${s.b})`);
+    });
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(chartLeft, chartTop, barW, barH);
+    // Labels
+    const labels = [
+      { pct: 10, text: "Unreliable" },
+      { pct: 30, text: "Poor" },
+      { pct: 50, text: "Marginal" },
+      { pct: 70, text: "Good" },
+      { pct: 90, text: "Excellent" }
+    ];
+    labels.forEach(lb => {
+      const x = chartLeft + ((100 - lb.pct) / 100) * barW;
       ctx.fillStyle = "#ccc"; ctx.font = "9px Arial"; ctx.textAlign = "center";
-      ctx.fillText(lv.label, x1 + w / 2, chartTop + barH + 10);
-      ctx.fillText(`${lv.min}-${lv.max}%`, x1 + w / 2, chartTop + barH + 20);
+      ctx.fillText(lb.text, x, chartTop + barH + 10);
+    });
+    // Tick marks
+    [0, 20, 40, 60, 80, 100].forEach(p => {
+      const x = chartLeft + ((100 - p) / 100) * barW;
+      ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, chartTop); ctx.lineTo(x, chartTop + barH); ctx.stroke();
+      ctx.fillStyle = "#888"; ctx.font = "8px Arial"; ctx.textAlign = "center";
+      ctx.fillText(`${p}%`, x, chartTop + barH + 20);
     });
     // Draw current clearance marker
     if(totalDistM > 0 && !blocked){
