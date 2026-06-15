@@ -1073,15 +1073,15 @@ async function toggleHeatmap(){
             "heatmap-weight": ["get", "weight"],
             "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 15, 2],
             "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 20, 10, 40, 12, 80, 14, 140, 16, 220],
-            "heatmap-color": [
+           "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(0,0,0,0)",
-              0.1, "rgba(0,0,255,0.2)",
-              0.3, "rgba(0,255,255,0.35)",
-              0.5, "rgba(0,255,0,0.4)",
-              0.7, "rgba(255,255,0,0.5)",
-              0.9, "rgba(255,128,0,0.6)",
-              1.0, "rgba(255,0,0,0.7)"
+              0.1, "rgba(255,0,0,0.3)",
+              0.3, "rgba(255,128,0,0.4)",
+              0.5, "rgba(255,255,0,0.45)",
+              0.7, "rgba(0,255,255,0.5)",
+              0.9, "rgba(0,200,0,0.6)",
+              1.0, "rgba(0,128,0,0.7)"
             ],
             "heatmap-opacity": 0.6
           }
@@ -1456,13 +1456,13 @@ return (<div style={{display:"flex",height:"100vh"}}>
       border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"10px 14px",
       backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)"}}>
       <div style={{color:"#fff",fontWeight:"bold",fontSize:12,marginBottom:6}}>📡 Signal Coverage</div>
-      {[
-        {color:"#ff0000",label:"Strong (Gateway)"},
-        {color:"#ff8000",label:"Good"},
-        {color:"#ffff00",label:"Moderate"},
-        {color:"#00ff00",label:"Fair"},
-        {color:"#00ffff",label:"Weak"},
-        {color:"#0000ff",label:"Fringe"}
+     {[
+        {color:"#008000",label:"Strong (Gateway)"},
+        {color:"#00c800",label:"Good"},
+        {color:"#00ffff",label:"Moderate"},
+        {color:"#ffff00",label:"Fair"},
+        {color:"#ff8000",label:"Weak"},
+        {color:"#ff0000",label:"Fringe"}
       ].map((item,i) => (
         <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
           <div style={{width:16,height:10,borderRadius:2,background:item.color,opacity:0.8}}/>
