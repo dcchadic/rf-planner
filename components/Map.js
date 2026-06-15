@@ -1424,31 +1424,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
       onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" 📊"}</div>))}
   </div>
 </div>
-    <div style={{display:"flex",gap:6}}>
-      <button onClick={()=>{
-        if(!selectedNode) return;
-        selectedNode.name = editName;
-        selectedNode.type = editType;
-        selectedNode.outOfRange = false;
-        selectedNode.modbusId = editType === "gateway" ? null : (editModbus || null);
-        if(editType==="gateway"){selectedNode.height=editHeight;selectedNode.range=3;}
-        else if(editType==="lra"){selectedNode.height=editHeight;selectedNode.range=3;}
-        else if(editType==="single"){selectedNode.height=editHeight;selectedNode.range=0;}
-        else{selectedNode.height=editHeight;selectedNode.range=0.75;}
-        selectedNode.markerElement.style.background=editType==="gateway"?"blue":editType==="lra"?"orange":editType==="single"?"black":"green";
-        saveSnapshot();setNodeVersion(v=>v+1);redraw();
-      }} style={{flex:1,padding:"8px",background:"#4CAF50",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:"bold",fontSize:13}}>
-        💾 Save
-      </button>
-    </div>
-    {selectedNode.elevation !== null && (
-      <div style={{color:"#888",fontSize:11,marginTop:6,textAlign:"center"}}>
-        Elev: {selectedNode.elevation}ft | {selectedNode.type !== "gateway" && selectedNode.modbusId ? `Modbus: ${selectedNode.modbusId}` : ""}
-      </div>
-    )}
-  </div>
-)}
-{showProfile&&profileData&&(<div style={{position:"absolute",top:"10%",left:"15%",width:"70%",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:10}}>
+   {showProfile&&profileData&&(<div style={{position:"absolute",top:"10%",left:"15%",width:"70%",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:10}}>
   <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
     <button onClick={()=>setShowProfile(false)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontWeight:"bold",fontSize:14}}>✕</button>
   </div>
