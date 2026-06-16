@@ -185,6 +185,15 @@ export default function Map(){
       setEditType(node.type);
       setEditHeight(node.height);
       setEditModbus(node.modbusId || "");
+    });
+    el.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      skipNextClick.current = true;
+      setSelectedNode(node);
+      setEditName(node.name);
+      setEditType(node.type);
+      setEditHeight(node.height);
+      setEditModbus(node.modbusId || "");
       if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]){
         try{ generateProfile(node); }catch(err){ console.log("Profile error:", err); }
       } else {
