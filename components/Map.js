@@ -748,6 +748,14 @@ export default function Map(){
       if(map.getLayer("measure-label"))map.removeLayer("measure-label"); if(map.getSource("measure-label"))map.removeSource("measure-label");
       map.addSource("measure-label",{type:"geojson",data:{type:"Feature",geometry:{type:"Point",coordinates:[(p1.lng+p2.lng)/2,(p1.lat+p2.lat)/2]},properties:{text:`\uD83D\uDCCF ${d.toFixed(2)} mi (${(d*5280).toFixed(0)} ft)`}}});
       map.addLayer({id:"measure-label",type:"symbol",source:"measure-label",layout:{"text-field":["get","text"],"text-size":16,"text-offset":[0,-1.5],"text-anchor":"bottom","text-allow-overlap":true},paint:{"text-color":"#ff00ff","text-halo-color":"#000000","text-halo-width":2}});
+      // Point A label
+      if(map.getLayer("measure-label-a"))map.removeLayer("measure-label-a"); if(map.getSource("measure-label-a"))map.removeSource("measure-label-a");
+      map.addSource("measure-label-a",{type:"geojson",data:{type:"Feature",geometry:{type:"Point",coordinates:[p1.lng,p1.lat]},properties:{text:"Point A"}}});
+      map.addLayer({id:"measure-label-a",type:"symbol",source:"measure-label-a",layout:{"text-field":["get","text"],"text-size":14,"text-font":["DIN Pro Bold","Arial Unicode MS Bold"],"text-offset":[0,-1.2],"text-anchor":"bottom","text-allow-overlap":true},paint:{"text-color":"#ff00ff","text-halo-color":"#000000","text-halo-width":2}});
+      // Point B label
+      if(map.getLayer("measure-label-b"))map.removeLayer("measure-label-b"); if(map.getSource("measure-label-b"))map.removeSource("measure-label-b");
+      map.addSource("measure-label-b",{type:"geojson",data:{type:"Feature",geometry:{type:"Point",coordinates:[p2.lng,p2.lat]},properties:{text:"Point B"}}});
+      map.addLayer({id:"measure-label-b",type:"symbol",source:"measure-label-b",layout:{"text-field":["get","text"],"text-size":14,"text-font":["DIN Pro Bold","Arial Unicode MS Bold"],"text-offset":[0,-1.2],"text-anchor":"bottom","text-allow-overlap":true},paint:{"text-color":"#ff00ff","text-halo-color":"#000000","text-halo-width":2}});
     }
   }
   function clearMeasure(){
@@ -755,6 +763,8 @@ export default function Map(){
     if(map){
       if(map.getLayer("measure-line"))map.removeLayer("measure-line"); if(map.getSource("measure-line"))map.removeSource("measure-line");
       if(map.getLayer("measure-label"))map.removeLayer("measure-label"); if(map.getSource("measure-label"))map.removeSource("measure-label");
+      if(map.getLayer("measure-label-a"))map.removeLayer("measure-label-a"); if(map.getSource("measure-label-a"))map.removeSource("measure-label-a");
+      if(map.getLayer("measure-label-b"))map.removeLayer("measure-label-b"); if(map.getSource("measure-label-b"))map.removeSource("measure-label-b");
     }
   }
   async function generateMeasureProfile(p1,p2){
@@ -1166,6 +1176,8 @@ export default function Map(){
   }
   function loadNetwork(e){
     const file = e.target.files[0];
+    if(!file) return;
+    e.target.value = "";
     const reader=new FileReader();
     reader.onload=(evt)=>{
       const raw=JSON.parse(evt.target.result); const map=mapRef.current;
@@ -1196,27 +1208,77 @@ export default function Map(){
     for(const a of nodesRef.current){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
       const path=getPath(a);if(path.some(n=>n.type==="gateway"))continue;
-      let worstClear=100,bestSignal=-999,maxNeededHeight=0;
+
+      // Find nearest gateway and nearest connected LRA
+      let nearestGW=null, nearestGWDist=Infinity;
+      let nearestLRA=null, nearestLRADist=Infinity;
       for(const b of nodesRef.current){
-        if(a===b)continue;const d=distance(a,b);const linkRange=(b.type==="lra")?3:a.range;if(d>linkRange)continue;
-        const los=await checkLOS(a,b,a.height,b.height);const signal=calcPower(d);
-        if(!los.clear){worstClear=0;if(los.requiredHeight>maxNeededHeight)maxNeededHeight=los.requiredHeight;}
-        if(signal>bestSignal)bestSignal=signal;
+        if(b===a) continue;
+        const d=distance(a,b);
+        if(b.type==="gateway" && d<nearestGWDist){ nearestGW=b; nearestGWDist=d; }
+        if(b.type==="lra" && d<nearestLRADist){
+          const bPath=getPath(b);
+          if(bPath.some(n=>n.type==="gateway")){ nearestLRA=b; nearestLRADist=d; }
+        }
       }
-      const terrainBlocked=worstClear===0;
-      const neededBoost=terrainBlocked?Math.ceil(maxNeededHeight):0;
-      let targetHeight=a.height+neededBoost;
-      let maxHeight=a.type==="sra"?5:a.type==="lra"?30:a.type==="gateway"?30:999;
-      let capped=false;
-      if(targetHeight>maxHeight){targetHeight=maxHeight;capped=true;}
-      a.recommendedHeight=targetHeight;
-      const weakSignal=bestSignal<-90;
-      if(bestSignal===-999){}
-      else if(terrainBlocked||weakSignal){
-        if(!capped){recs.push({text:`\uD83D\uDCE1 ${a.name.toUpperCase()}: Set antenna height to ~${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`,node:a});}
-        else{if(a.type==="sra"){recs.push({text:`\u2B06\uFE0F ${a.name.toUpperCase()}: Max height reached (5 ft). Upgrade to LRA (${bestSignal.toFixed(0)} dBm)`});}
-        else{recs.push({text:`\uD83D\uDCE1 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`,node:a});}}
-      } else {recs.push({text:`\u2705 ${a.name.toUpperCase()}: Good link (${bestSignal.toFixed(0)} dBm)`});}
+
+      const nearestTarget = (nearestGWDist <= nearestLRADist) ? nearestGW : nearestLRA;
+      const nearestDist = (nearestGWDist <= nearestLRADist) ? nearestGWDist : nearestLRADist;
+      const nearestLabel = nearestTarget ? nearestTarget.name.toUpperCase() : "any gateway/LRA";
+      const maxReach = (a.type==="lra") ? 3 : 0.75;
+
+      // CASE 1: Nothing within max possible range (3mi for LRA reach)
+      if(!nearestTarget || nearestDist > 3){
+        recs.push({text:`📡 ${a.name.toUpperCase()}: Out of range — nearest gateway/LRA is ${nearestDist===Infinity?"unknown":nearestDist.toFixed(2)+" mi"} away (max 3 mi)`,node:a});
+        continue;
+      }
+
+      // CASE 2: Within 3mi but beyond current type range — needs upgrade
+      if(nearestDist > maxReach && a.type==="sra"){
+        const los = await checkLOS(a, nearestTarget, 10, nearestTarget.height);
+        if(!los.clear){
+          const neededH = Math.ceil(los.requiredHeight + a.height);
+          if(neededH > 30){
+            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} (${nearestDist.toFixed(2)} mi) — needs ${neededH}ft but max LRA height is 30ft`,node:a,target:nearestTarget});
+          } else {
+            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Upgrade to LRA + set height to ~${neededH}ft to clear terrain to ${nearestLabel} (${nearestDist.toFixed(2)} mi)`,node:a,target:nearestTarget});
+          }
+        } else {
+          recs.push({text:`⬆️ ${a.name.toUpperCase()}: Out of SRA range (0.75 mi) — upgrade to LRA to reach ${nearestLabel} (${nearestDist.toFixed(2)} mi)`,node:a,target:nearestTarget});
+        }
+        continue;
+      }
+
+      // CASE 3: Within range — check LOS
+      const los = await checkLOS(a, nearestTarget, a.height, nearestTarget.height);
+      if(!los.clear){
+        const neededH = Math.ceil(los.requiredHeight + a.height);
+        const maxH = a.type==="sra" ? 5 : a.type==="lra" ? 30 : 30;
+        if(neededH > maxH){
+          if(a.type==="sra"){
+            // Check if LRA height could fix it
+            const losLRA = await checkLOS(a, nearestTarget, 30, nearestTarget.height);
+            if(losLRA.clear){
+              recs.push({text:`⬆️ ${a.name.toUpperCase()}: Terrain blocks LOS at SRA max 5ft — upgrade to LRA (~${Math.ceil(los.requiredHeight+5)}ft) to clear to ${nearestLabel}`,node:a,target:nearestTarget});
+            } else {
+              recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — needs ${neededH}ft, exceeds max LRA height (30ft)`,node:a,target:nearestTarget});
+            }
+          } else {
+            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — needs ${neededH}ft but max ${a.type.toUpperCase()} height is ${maxH}ft`,node:a,target:nearestTarget});
+          }
+        } else {
+          recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — increase height to ~${neededH}ft to clear`,node:a,target:nearestTarget});
+        }
+        continue;
+      }
+
+      // CASE 4: LOS clear but still disconnected (mesh routing issue)
+      const signal = calcPower(nearestDist);
+      if(signal < -95){
+        recs.push({text:`📡 ${a.name.toUpperCase()}: Weak signal to ${nearestLabel} (${signal.toFixed(0)} dBm at ${nearestDist.toFixed(2)} mi) — consider adding relay node`,node:a,target:nearestTarget});
+      } else {
+        recs.push({text:`🔗 ${a.name.toUpperCase()}: LOS clear to ${nearestLabel} but no mesh path to gateway — check intermediate node connections`,node:a,target:nearestTarget});
+      }
     }
     if(recs.length===0){setRecommendations([{text:`\u2705 All nodes connected \u2014 no action needed`}]);}else{setRecommendations(recs);}
   }
@@ -1229,9 +1291,12 @@ export default function Map(){
     setInputCoords("");
   }
   function uploadExcel(e){
+    const file = e.target.files[0];
+    if(!file) return;
+    e.target.value = "";
     const reader=new FileReader();
     reader.onload=(evt)=>{const wb=XLSX.read(new Uint8Array(evt.target.result));const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);setImportedData(rows);setShowOptimizePrompt(true);};
-    reader.readAsArrayBuffer(e.target.files[0]);
+    reader.readAsArrayBuffer(file);
   }
 
   async function optimizeExisting(){
@@ -1460,7 +1525,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
       <div key={p.id}
         onClick={() => switchProject(p.id)}
         onDoubleClick={(e) => { e.stopPropagation(); renameProject(p.id); }}
-        title="Click to switch \u2022 Double-click to rename"
+        title={"Click to switch • Double-click to rename"}
         style={{
           display:"flex",alignItems:"center",gap:4,
           padding:"8px 12px",
@@ -1493,13 +1558,13 @@ return (<div style={{display:"flex",height:"100vh"}}>
   {/* ========== SIDEBAR CONTENT ========== */}
   <div style={{padding:12}}>
     <div style={{display:"flex",gap:4}}>
-      <button onClick={()=>setMode("gateway")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="gateway"?"#0000cc":"blue",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDD35"} Gateway</button>
-      <button onClick={()=>setMode("lra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="lra"?"#cc7a00":"orange",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE0"} LRA</button>
-      <button onClick={()=>setMode("sra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="sra"?"#2e7d32":"green",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE2"} SRA</button>
-      <button onClick={()=>setMode("single")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="single"?"#333":"black",fontWeight:"bold",fontSize:11}}>{"\u26AB"} Single</button>
+      <button onClick={()=>setMode("gateway")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="gateway"?"#0000cc":"blue",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDD35"} Gateway</button>
+      <button onClick={()=>setMode("lra")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="lra"?"#cc7a00":"orange",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE0"} LRA</button>
+      <button onClick={()=>setMode("sra")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="sra"?"#2e7d32":"green",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE2"} SRA</button>
+      <button onClick={()=>setMode("single")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="single"?"#333":"black",fontWeight:"bold",fontSize:11}}>{"\u26AB"} Single</button>
     </div>
-    <button onClick={optimizeExisting} style={{marginTop:6,width:"100%",background:"#4CAF50",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\u26A1"} Auto-Optimize</button>
-    <button onClick={()=>{nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();});nodesRef.current=[];linksRef.current={};setRecommendations([]);setSelectedNode(null);redraw();}} style={{marginTop:6,width:"100%",background:"#f44336",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\uD83D\uDDD1\uFE0F"} Clear All</button>
+    <button onClick={optimizeExisting} style={{marginTop:6,width:"100%",background:"#4CAF50",color:"white",padding:"6px",border:"1px solid #fff",cursor:"pointer"}}>{"\u26A1"} Auto-Optimize</button>
+    <button onClick={()=>{nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();});nodesRef.current=[];linksRef.current={};setRecommendations([]);setSelectedNode(null);redraw();}} style={{marginTop:6,width:"100%",background:"#f44336",color:"white",padding:"6px",border:"1px solid #fff",cursor:"pointer"}}>{"\uD83D\uDDD1\uFE0F"} Clear All</button>
   </div>
   <div style={{flex:1,overflowY:"auto",padding:12}}>
     <div style={{position:"relative"}}>
