@@ -31,7 +31,7 @@ export default function Map(){
   const [selectedNode,setSelectedNode] = useState(null);
   const [editName,setEditName] = useState("");
   const [editType,setEditType] = useState("");
- const [editHeight, setEditHeight] = useState(0);
+  const [editHeight, setEditHeight] = useState(0);
   const [editModbus, setEditModbus] = useState("");
   const [nodeVersion, setNodeVersion] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
@@ -49,16 +49,22 @@ export default function Map(){
 
   // ---------- FCC TOWER STATE ----------
   const [showFCCTowers, setShowFCCTowers] = useState(false);
-const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
   const heatmapLoaded = useRef(false);
   const showHeatmapRef = useRef(false);
   const [fccLoading, setFccLoading] = useState(false);
   const fccLoaded = useRef(false);
   const fccPopupRef = useRef(null);
 
+  // ---------- MULTI-PROJECT STATE ----------
+  const [projects, setProjects] = useState([{ id: 1, name: "Project 1" }]);
+  const [activeProjectId, setActiveProjectId] = useState(1);
+  const projectDataRef = useRef({});
+  const nextProjectIdRef = useRef(2);
+
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
-useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
+  useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
 
   const measureModeRef = useRef(false);
   useEffect(() => { measureModeRef.current = measureMode; }, [measureMode]);
@@ -166,12 +172,12 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       height: customHeight || (type==="gateway"?15:type==="lra"?10:5),
       range: type==="gateway"?3:type==="lra"?3:type==="single"?0:0.75,
       name: name || `${type}-${nodesRef.current.length+1}`,
-    elevation: null, blocked: false, blockDetail: null, outOfRange: false,
+      elevation: null, blocked: false, blockDetail: null, outOfRange: false,
       modbusId: type === "gateway" ? null : nodesRef.current.filter(n => n.type !== "gateway").length + 1
     };
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat]).addTo(map);
-   el.addEventListener("click", (e) => {
+    el.addEventListener("click", (e) => {
       e.stopPropagation();
       skipNextClick.current = true;
       setSelectedNode(node);
@@ -179,15 +185,15 @@ useEffect(() => { showHeatmapRef.current = showHeatmap; }, [showHeatmap]);
       setEditType(node.type);
       setEditHeight(node.height);
       setEditModbus(node.modbusId || "");
-if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]){
+      if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]){
         try{ generateProfile(node); }catch(err){ console.log("Profile error:", err); }
       } else {
-        // No profile — show empty profile popup for edit only
         setProfileData({ from: node, to: node, points: [{dist:0,elev:0,lng:node.lng,lat:node.lat}], totalDist: 0, isMeasure: false });
         setProfileFromHeight(node.height); setProfileToHeight(node.height);
         setProfileFromType(node.type); setProfileToType(node.type);
         setShowProfile(true);
-      }    });
+      }
+    });
     marker.on("dragend",()=>{
       const p = marker.getLngLat();
       node.lng=p.lng; node.lat=p.lat; node.elevation = null; redraw();
@@ -197,14 +203,14 @@ if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.na
       nodesRef.current = nodesRef.current.filter(n=>n!==node);
       saveSnapshot(); redraw();
     };
-if(customHeight && !node.modbusId && type !== "gateway"){ node.modbusId = nodesRef.current.filter(n => n.type !== "gateway").length + 1; }
+    if(customHeight && !node.modbusId && type !== "gateway"){ node.modbusId = nodesRef.current.filter(n => n.type !== "gateway").length + 1; }
     node.marker = marker;
     nodesRef.current.push(node);
     if (!silent){ saveSnapshot(); redraw(); }
   }
 
   // ---------- ROUTING ----------
-async function calcFresnelPct(p1, p2){
+  async function calcFresnelPct(p1, p2){
     const d = distance(p1, p2);
     const totalDistM = d * 1609.34;
     const wl = 0.333;
@@ -231,7 +237,8 @@ async function calcFresnelPct(p1, p2){
     }
     return worstPct;
   }
-async function computeLinks(){
+
+  async function computeLinks(){
     linksRef.current = {};
     const sortedNodes = [...nodesRef.current].sort((x,y)=>{
       const order = {gateway:0, lra:1, sra:2};
@@ -271,7 +278,7 @@ async function computeLinks(){
       const best = clearGateway||clearLRA||clearSRA||blockedGateway||blockedLRA||blockedSRA||null;
       if (best) linksRef.current[a.name] = best;
     }
-    // SECOND PASS — fix blocked links
+    // SECOND PASS - fix blocked links
     for (const a of sortedNodes) {
       if (a.type === "gateway") continue;
       if (a.type === "single") continue;
@@ -297,6 +304,7 @@ async function computeLinks(){
       if (bestAlt) linksRef.current[a.name] = bestAlt;
     }
   }
+
   function getPath(start){
     const path=[start]; let current=start;
     const visited = new Set([start.name]);
@@ -349,10 +357,10 @@ async function computeLinks(){
     map.addSource("all-nodes", { type: "geojson", data: { type: "FeatureCollection", features: nodeFeatures } });
     map.addLayer({
       id: "all-nodes", type: "symbol", source: "all-nodes",
-     layout: { "text-field": ["get", "text"], "text-size": 13, "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+      layout: { "text-field": ["get", "text"], "text-size": 13, "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
         "text-variable-anchor": ["top","bottom","left","right"],
         "text-radial-offset": 1.2, "text-justify": "auto", "text-allow-overlap": false },
-     paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
+      paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
     });
     const drawnLinks = new Set();
     for(let i=0;i<nodesRef.current.length;i++){
@@ -363,7 +371,7 @@ async function computeLinks(){
       if (!path || path.length < 2) continue;
       for(let j=0;j<path.length-1;j++){
         const p1 = path[j]; const p2 = path[j+1];
-        const linkKey = [p1.name, p2.name].sort().join("→");
+        const linkKey = [p1.name, p2.name].sort().join("\u2192");
         if(drawnLinks.has(linkKey)) continue;
         drawnLinks.add(linkKey);
         const los = await checkLOS(p1, p2, p1.height, p2.height);
@@ -371,12 +379,12 @@ async function computeLinks(){
         const signal = calcPower(d);
         if (!los.clear){
           p1.blocked = true;
-          p1.blockDetail = `⛰️ +${Math.ceil(los.requiredHeight)}ft to clear → ${p2.name}`;
+          p1.blockDetail = `\u26F0\uFE0F +${Math.ceil(los.requiredHeight)}ft to clear \u2192 ${p2.name}`;
         }
         const lineId = `line-${i}-${j}`;
         if (map.getSource(lineId)) { try { map.removeLayer(lineId); map.removeSource(lineId); } catch {} }
         map.addSource(lineId,{ type:"geojson", data:{ type:"Feature", geometry:{ type:"LineString", coordinates:[[p1.lng,p1.lat],[p2.lng,p2.lat]] } } });
-       let fresnelPct = 100;
+        let fresnelPct = 100;
         if(los.clear){
           const totalDistM2 = d * 1609.34;
           const wl = 0.333;
@@ -398,7 +406,7 @@ async function computeLinks(){
               const losE = tip1f + (tip2f - tip1f) * t2;
               const cl = losE - ev;
               const pct2 = (cl / fR) * 100;
-             if(pct2 < fresnelPct) fresnelPct = pct2;
+              if(pct2 < fresnelPct) fresnelPct = pct2;
             }
           }
         }
@@ -424,15 +432,15 @@ async function computeLinks(){
           const b = Math.round(lower.b + (upper.b - lower.b) * t);
           lineColor = `rgb(${r},${g},${b})`;
         }
-const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPct)) / 10 : 0;
+        const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPct)) / 10 : 0;
         map.addLayer({ id:lineId, type:"line", source:lineId, paint:{
           "line-color": lineColor,
           "line-width":3 }
         });
 
- if(los.clear && fresnelPct < 60){
+        if(los.clear && fresnelPct < 60){
           p1.fresnelWarn = true;
-          p1.fresnelDetail = `⚠️ Fresnel ${Math.max(0,fresnelPct).toFixed(0)}% clearance → ${p2.name} — increase height`;
+          p1.fresnelDetail = `\u26A0\uFE0F Fresnel ${Math.max(0,fresnelPct).toFixed(0)}% clearance \u2192 ${p2.name} \u2014 increase height`;
           p1.fresnelTarget = p2;
         }
 
@@ -444,7 +452,7 @@ const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPc
         if (map.getSource(labelId)) { try { map.removeLayer(labelId); map.removeSource(labelId); } catch {} }
         map.addSource(labelId,{ type:"geojson", data:{ type:"Feature",
           geometry:{ type:"Point", coordinates:[(p1.lng+p2.lng)/2,(p1.lat+p2.lat)/2] },
-         properties:{ text: los.clear ? `${d.toFixed(2)} mi | ${(signal - fresnelLoss).toFixed(0)} dBm${fresnelLoss > 0 ? ` (F: -${fresnelLoss.toFixed(0)})` : ""}` : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft` } } });
+          properties:{ text: los.clear ? `${d.toFixed(2)} mi | ${(signal - fresnelLoss).toFixed(0)} dBm${fresnelLoss > 0 ? ` (F: -${fresnelLoss.toFixed(0)})` : ""}` : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft` } } });
         map.addLayer({ id:labelId, type:"symbol", source:labelId,
           layout:{ "text-field":["get","text"], "text-size":13,
             "text-variable-anchor":["top","bottom","left","right"],
@@ -460,7 +468,7 @@ const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPc
       else { n.markerElement.style.background = n.type==="gateway"?"blue":n.type==="lra"?"orange":"green"; n.markerElement.style.border = "none"; }
     }
     if(showHeatmapRef.current) updateHeatmapData();
-analyzeNetwork();
+    analyzeNetwork();
     setNodeVersion(v => v + 1);
   }
 
@@ -499,7 +507,7 @@ analyzeNetwork();
       ctx.fillStyle = "#00bcd4"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
       ctx.fillText(`${profileData.from.name} (${profileData.from.type.toUpperCase()})`, canvas.width/2, canvas.height/2 - 10);
       ctx.fillStyle = "#888"; ctx.font = "12px Arial";
-      ctx.fillText("No link connection — edit node below", canvas.width/2, canvas.height/2 + 15);
+      ctx.fillText("No link connection \u2014 edit node below", canvas.width/2, canvas.height/2 + 15);
       return;
     }
     const canvas = canvasRef.current;
@@ -510,7 +518,7 @@ analyzeNetwork();
     const minElev = Math.min(...points.map(p => p.elev)) - padElev;
     const maxElev = Math.max(...points.map(p => p.elev)) + padElev + profileData.from.height + profileData.to.height;
     const maxDist = profileData.totalDist;
-     const left = 65, right = 25, top = 85, bottom = 40;
+    const left = 65, right = 25, top = 85, bottom = 40;
     const plotW = W - left - right, plotH = H - top - bottom;
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, W, H);
@@ -544,7 +552,7 @@ analyzeNetwork();
     ctx.beginPath(); ctx.moveTo(left, fromTipY); ctx.lineTo(left + plotW, toTipY); ctx.strokeStyle = "#ff5555"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
 
     // --- FRESNEL ZONE ---
-    const wavelengthM = 0.333; // 900 MHz
+    const wavelengthM = 0.333;
     const totalDistM = profileData.totalDist * 1609.34;
     if(totalDistM > 0){
       ctx.beginPath();
@@ -609,7 +617,7 @@ analyzeNetwork();
     ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial";
     ctx.textAlign = "left"; ctx.fillText(`${profileData.from.name} (${profileFromType.toUpperCase()}) ${profileFromHeight}ft`, left + 5, top + 15);
     ctx.textAlign = "right"; ctx.fillText(`${profileData.to.name} (${profileToType.toUpperCase()}) ${profileToHeight}ft`, left + plotW - 5, top + 15);
-   ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
+    ctx.fillStyle = "#00bcd4"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
     for(let i = 0; i <= 5; i++){
       const d = (maxDist / 5) * i;
       const x = left + (d / maxDist) * plotW;
@@ -633,26 +641,26 @@ analyzeNetwork();
           for(let i=1;i<points.length-1;i++){const t=i/(points.length-1);if(points[i].elev>t1+(t2-t1)*t){clear=false;break;}} if(clear){minRightH=testH;break;} }
         ctx.fillStyle="#ff5555";ctx.font="bold 14px Arial";ctx.textAlign="center";ctx.fillText(`\u26A0\uFE0F LOS BLOCKED`,W/2,top+55);
         ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";
-       ctx.textAlign="left";ctx.fillText(`\u2B06\uFE0F Needs ${minLeftH}ft to clear`,left+5,top+70);
+        ctx.textAlign="left";ctx.fillText(`\u2B06\uFE0F Needs ${minLeftH}ft to clear`,left+5,top+70);
         ctx.textAlign="right";ctx.fillText(`\u2B06\uFE0F Needs ${minRightH}ft to clear`,left+plotW-5,top+70);
       } else {
         let maxBlock2=0; for(let i=0;i<points.length;i++){const t=i/(points.length-1);const diff=points[i].elev-(fromElev+(toElev-fromElev)*t);if(diff>maxBlock2)maxBlock2=diff;}
         ctx.fillStyle="#ff5555";ctx.font="bold 16px Arial";ctx.textAlign="center";
         ctx.fillText(`\u26A0\uFE0F Increase height by ~${Math.ceil(maxBlock2+5)}ft to clear obstruction`,W/2,top+65);
       }
-   } else {
+    } else {
       ctx.fillStyle="#4CAF50";ctx.font="bold 16px Arial";ctx.textAlign="center";
-      ctx.fillText(`✅ Clear LOS — no height change needed`,W/2,top+30);
+      ctx.fillText(`\u2705 Clear LOS \u2014 no height change needed`,W/2,top+30);
       if(fresnelClear){
         ctx.fillStyle="#4CAF50";ctx.font="bold 12px Arial";ctx.textAlign="center";
-        ctx.fillText(`🟢 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Reliable link`,W/2,top+48);
+        ctx.fillText(`\uD83D\uDFE2 Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance \u2014 Reliable link`,W/2,top+48);
       } else {
         ctx.fillStyle="#ffaa00";ctx.font="bold 12px Arial";ctx.textAlign="center";
-        ctx.fillText(`⚠️ Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance — Increase height for reliable link`,W/2,top+48);
+        ctx.fillText(`\u26A0\uFE0F Fresnel Zone: ${Math.max(0,worstFresnelPct).toFixed(0)}% clearance \u2014 Increase height for reliable link`,W/2,top+48);
       }
     }
- // --- FRESNEL REFERENCE CHART ---
-  const chartTop = 12;
+    // --- FRESNEL REFERENCE CHART ---
+    const chartTop = 12;
     const chartLeft = left;
     const barH = 10;
     const barW = plotW;
@@ -664,20 +672,16 @@ analyzeNetwork();
       { pct: 80, r: 76, g: 175, b: 80 },
       { pct: 100, r: 46, g: 125, b: 50 }
     ];
-    // Background
     ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(chartLeft - 5, chartTop - 14, barW + 10, 55);
-    // Title
     ctx.fillStyle = "#aaa"; ctx.font = "bold 10px Arial"; ctx.textAlign = "left";
     ctx.fillText("FRESNEL CLEARANCE", chartLeft, chartTop - 4);
-    // Draw gradient bar
     const barGrad = ctx.createLinearGradient(chartLeft + barW, chartTop, chartLeft, chartTop);
     gradStops.forEach(s => {
       barGrad.addColorStop(s.pct / 100, `rgb(${s.r},${s.g},${s.b})`);
     });
     ctx.fillStyle = barGrad;
     ctx.fillRect(chartLeft, chartTop, barW, barH);
-    // Labels
     const labels = [
       { pct: 10, text: "Unreliable" },
       { pct: 30, text: "Poor" },
@@ -690,7 +694,6 @@ analyzeNetwork();
       ctx.fillStyle = "#ccc"; ctx.font = "9px Arial"; ctx.textAlign = "center";
       ctx.fillText(lb.text, x, chartTop + barH + 10);
     });
-    // Tick marks
     [0, 20, 40, 60, 80, 100].forEach(p => {
       const x = chartLeft + ((100 - p) / 100) * barW;
       ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1;
@@ -698,7 +701,6 @@ analyzeNetwork();
       ctx.fillStyle = "#888"; ctx.font = "8px Arial"; ctx.textAlign = "center";
       ctx.fillText(`${p}%`, x, chartTop + barH + 20);
     });
-    // Draw current clearance marker
     if(totalDistM > 0 && !blocked){
       const markerX = chartLeft + ((100 - Math.max(0, Math.min(100, worstFresnelPct))) / 100) * barW;
       ctx.beginPath();
@@ -708,9 +710,9 @@ analyzeNetwork();
       ctx.closePath();
       ctx.fillStyle = "#00ffff"; ctx.fill();
       ctx.fillStyle = "#00ffff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
-      ctx.fillText(`▼ ${Math.max(0, worstFresnelPct).toFixed(0)}%`, markerX, chartTop - 12);
+      ctx.fillText(`\u25BC ${Math.max(0, worstFresnelPct).toFixed(0)}%`, markerX, chartTop - 12);
     }
-}, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
+  }, [showProfile, profileData, profileFromHeight, profileToHeight, profileFromType, profileToType]);
 
   function saveSnapshot(){
     const snap = nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range }));
@@ -750,8 +752,10 @@ analyzeNetwork();
   }
   function clearMeasure(){
     const map=mapRef.current; measurePoints.current=[]; measureMarkersRef.current.forEach(m=>m.remove()); measureMarkersRef.current=[];
-    if(map.getLayer("measure-line"))map.removeLayer("measure-line"); if(map.getSource("measure-line"))map.removeSource("measure-line");
-    if(map.getLayer("measure-label"))map.removeLayer("measure-label"); if(map.getSource("measure-label"))map.removeSource("measure-label");
+    if(map){
+      if(map.getLayer("measure-line"))map.removeLayer("measure-line"); if(map.getSource("measure-line"))map.removeSource("measure-line");
+      if(map.getLayer("measure-label"))map.removeLayer("measure-label"); if(map.getSource("measure-label"))map.removeSource("measure-label");
+    }
   }
   async function generateMeasureProfile(p1,p2){
     let leftPt=p1,rightPt=p2;
@@ -804,7 +808,8 @@ analyzeNetwork();
       if(!rescued)break;
     }
   }
-async function optimizeFresnel(){
+
+  async function optimizeFresnel(){
     let changed = false;
     for(const a of nodesRef.current){
       if(a.type === "gateway" || a.type === "single") continue;
@@ -814,41 +819,31 @@ async function optimizeFresnel(){
       if(!currentLOS.clear) continue;
       const currentFresnel = await calcFresnelPct(a, currentLink);
       if(currentFresnel >= 60) continue;
-
-      // This link has poor Fresnel — look for better
       let bestAlt = null;
       let bestAltFresnel = currentFresnel;
       let bestAltNeedsLRA = false;
       let bestAltCanSRA = false;
-
       for(const b of nodesRef.current){
         if(b === a || b === currentLink) continue;
         if(b.type === "single") continue;
         const d = distance(a, b);
-
-        // Check if reachable as current type
         let reachable = false;
         let needsLRA = false;
         if(b.type === "gateway" && d <= 3) reachable = true;
         else if(b.type === "lra" && d <= 3) reachable = true;
         else if(d <= a.range) reachable = true;
         else if(d <= 3 && a.type === "sra"){
-          // Would need to upgrade to LRA to reach
           needsLRA = true;
           reachable = true;
         }
         if(!reachable) continue;
-
-        // Must have a path to gateway
         const isGateway = b.type === "gateway";
         if(!isGateway){
           const bPath = getPath(b);
           if(!bPath.some(n => n.type === "gateway")) continue;
         }
-
         const los = await checkLOS(a, b, needsLRA ? 10 : a.height, b.height);
         if(!los.clear) continue;
-
         const tempA = {...a, height: needsLRA ? 10 : a.height};
         const fpct = await calcFresnelPct(tempA, b);
         if(fpct > bestAltFresnel){
@@ -858,19 +853,15 @@ async function optimizeFresnel(){
           bestAltCanSRA = (d <= 0.75 && a.type === "lra" && !needsLRA);
         }
       }
-
       if(bestAlt && bestAltFresnel > currentFresnel){
-        // Switch to better Fresnel path
         linksRef.current[a.name] = bestAlt;
         changed = true;
-
         if(bestAltNeedsLRA && a.type === "sra"){
           a.type = "lra";
           a.height = 10;
           a.range = 3;
           if(a.markerElement) a.markerElement.style.background = "orange";
         }
-
         if(bestAltCanSRA && a.type === "lra" && !a._wasUpgraded){
           a.type = "sra";
           a.height = 5;
@@ -913,7 +904,6 @@ async function optimizeFresnel(){
       const res = await fetch("/fcc_towers.json");
       const data = await res.json();
       const sz = 28;
-      // Carrier-colored triangles
       map.addImage("fcc-tri-att", createTriangleImage(sz, "#0057B8", null));
       map.addImage("fcc-tri-verizon", createTriangleImage(sz, "#FF0000", null));
       map.addImage("fcc-tri-tmobile", createTriangleImage(sz, "#E20074", null));
@@ -926,15 +916,15 @@ async function optimizeFresnel(){
           type: "Feature",
           geometry: { type: "Point", coordinates: [t.lng, t.lat] },
           properties: {
-  height: t.height || 0,
-  towerType: t.type || "unknown",
-  carriers: t.carrier || "unknown",
-  carrierCount: 1,
-  owner: t.owner || "Unknown",
-  fccId: t.fccId || "",
-  big3: t.big3 || "none",
-  carrierTag: t.carrier || "unknown"
-}
+            height: t.height || 0,
+            towerType: t.type || "unknown",
+            carriers: t.carrier || "unknown",
+            carrierCount: 1,
+            owner: t.owner || "Unknown",
+            fccId: t.fccId || "",
+            big3: t.big3 || "none",
+            carrierTag: t.carrier || "unknown"
+          }
         }))
       };
       map.addSource("fcc-towers", { type: "geojson", data: geojson, cluster: true, clusterMaxZoom: 13, clusterRadius: 50 });
@@ -947,7 +937,6 @@ async function optimizeFresnel(){
         layout: { "text-field": "{point_count_abbreviated}", "text-size": 11, "text-allow-overlap": true },
         paint: { "text-color": "#000000" }
       });
-      // Individual tower symbols — carrier-colored
       map.addLayer({ id: "fcc-towers-unclustered", type: "symbol", source: "fcc-towers", filter: ["!", ["has", "point_count"]],
         layout: {
           "icon-image": [
@@ -969,7 +958,6 @@ async function optimizeFresnel(){
           "icon-size": 0.9, "icon-allow-overlap": true, "icon-anchor": "bottom"
         }
       });
-      // Height labels — bigger, bold, cyan with black halo
       map.addLayer({ id: "fcc-towers-labels", type: "symbol", source: "fcc-towers",
         filter: ["!", ["has", "point_count"]], minzoom: 11,
         layout: { "text-field": ["concat", ["to-string", ["get", "height"]], "ft"],
@@ -977,14 +965,12 @@ async function optimizeFresnel(){
           "text-offset": [0, 0.5], "text-anchor": "top", "text-allow-overlap": false },
         paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
       });
-      // Click cluster to zoom
       map.on("click", "fcc-clusters", (e) => {
         e.originalEvent.stopPropagation(); skipNextClick.current = true;
         const features = map.queryRenderedFeatures(e.point, { layers: ["fcc-clusters"] });
         const clusterId = features[0].properties.cluster_id;
         map.getSource("fcc-towers").getClusterExpansionZoom(clusterId, (err, zoom) => { if (err) return; map.easeTo({ center: features[0].geometry.coordinates, zoom }); });
       });
-      // Click tower for popup with carrier affiliation
       map.on("click", "fcc-towers-unclustered", (e) => {
         e.originalEvent.stopPropagation(); skipNextClick.current = true;
         const props = e.features[0].properties;
@@ -1018,24 +1004,20 @@ async function optimizeFresnel(){
       setFccLoading(false);
     }
   }
-async function updateHeatmapData(){
+
+  async function updateHeatmapData(){
     const map = mapRef.current; if(!map) return;
     const features = [];
     const connected = nodesRef.current.filter(n => n.type !== "single" && !n.outOfRange);
-
     for(const n of connected){
       const rangeMi = (n.type === "gateway" || n.type === "lra") ? 3 : 0.75;
       const dirs = (n.type === "gateway" || n.type === "lra") ? 16 : 8;
       const steps = 5;
-
-      // Center point (strongest)
       features.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: [n.lng, n.lat] },
         properties: { weight: n.type === "gateway" ? 1.0 : n.type === "lra" ? 0.8 : 0.5 }
       });
-
-      // Sample in each direction
       for(let dir = 0; dir < dirs; dir++){
         const angle = (dir / dirs) * 2 * Math.PI;
         for(let s = 1; s <= steps; s++){
@@ -1044,21 +1026,15 @@ async function updateHeatmapData(){
           const dlng = (dist / (69 * Math.cos(n.lat * Math.PI / 180))) * Math.sin(angle);
           const sLat = n.lat + dlat;
           const sLng = n.lng + dlng;
-
-          // Quick terrain check
           const elev1 = await getElevation(n.lng, n.lat);
           const elev2 = await getElevation(sLng, sLat);
           const tip1 = elev1 + n.height;
           const tip2 = elev2 + 5;
-
-          // Check midpoint for blockage
           const midLng = (n.lng + sLng) / 2;
           const midLat = (n.lat + sLat) / 2;
           const midElev = await getElevation(midLng, midLat);
           const midLOS = (tip1 + tip2) / 2;
-
-          if(midElev > midLOS) break; // Terrain blocks this direction
-
+          if(midElev > midLOS) break;
           const w = (1 - (s / steps)) * (n.type === "gateway" ? 0.8 : n.type === "lra" ? 0.6 : 0.4);
           features.push({
             type: "Feature",
@@ -1068,17 +1044,16 @@ async function updateHeatmapData(){
         }
       }
     }
-
     const data = { type: "FeatureCollection", features };
     if(map.getSource("signal-heatmap")){
       map.getSource("signal-heatmap").setData(data);
     }
   }
-async function toggleHeatmap(){
+
+  async function toggleHeatmap(){
     const map = mapRef.current; if(!map) return;
     if(!showHeatmap){
       if(!heatmapLoaded.current){
-        // Generate initial terrain-aware data
         const features = [{type:"Feature",geometry:{type:"Point",coordinates:[0,0]},properties:{weight:0}}];
         map.addSource("signal-heatmap", {
           type: "geojson",
@@ -1092,7 +1067,7 @@ async function toggleHeatmap(){
             "heatmap-weight": ["get", "weight"],
             "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 15, 2],
             "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 20, 10, 40, 12, 80, 14, 140, 16, 220],
-           "heatmap-color": [
+            "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(0,0,0,0)",
               0.1, "rgba(255,0,0,0.3)",
@@ -1116,6 +1091,7 @@ async function toggleHeatmap(){
       setShowHeatmap(false);
     }
   }
+
   async function toggleFCCTowers() {
     const map = mapRef.current; if (!map) return;
     if (!showFCCTowers) {
@@ -1129,9 +1105,10 @@ async function toggleHeatmap(){
     }
   }
 
-  // SAVE NETWORK
+  // SAVE NETWORK - uses project name as default
   function saveNetwork(){
-    const fileName = prompt("Name this network:", "rf-network");
+    const currentProject = projects.find(p => p.id === activeProjectId);
+    const fileName = prompt("Name this network:", currentProject?.name || "rf-network");
     if(!fileName) return;
     const saveData = {
       nodes: nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range,modbusId:n.modbusId||null })),
@@ -1164,8 +1141,10 @@ async function toggleHeatmap(){
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(recRows),"Recommendations");
     XLSX.writeFile(wb,"rf-network-report.xlsx");
   }
+
   async function exportBundle(){
-    const folderName=prompt("Name this export:","rf-network"); if(!folderName)return;
+    const currentProject = projects.find(p => p.id === activeProjectId);
+    const folderName=prompt("Name this export:",currentProject?.name || "rf-network"); if(!folderName)return;
     const zip=new JSZip(); const folder=zip.folder(folderName);
     const nodeRows=nodesRef.current.map(n=>({"Name":n.name,"Type":n.type.toUpperCase(),"Latitude":n.lat,"Longitude":n.lng,"Antenna Height (ft)":n.height,"Recommended Height (ft)":n.recommendedHeight||n.height,"Ground Elevation (ft)":n.elevation||"N/A","Range (mi)":n.range,"Status":n.outOfRange?"SINGLE MODEM":n.blocked?"BLOCKED":"OK"}));
     const connectionRows=[];
@@ -1186,6 +1165,7 @@ async function toggleHeatmap(){
     const blobUrl=URL.createObjectURL(content); const a=document.createElement("a"); a.href=blobUrl; a.download=folderName+".zip"; a.click(); URL.revokeObjectURL(blobUrl);
   }
   function loadNetwork(e){
+    const file = e.target.files[0];
     const reader=new FileReader();
     reader.onload=(evt)=>{
       const raw=JSON.parse(evt.target.result); const map=mapRef.current;
@@ -1194,10 +1174,13 @@ async function toggleHeatmap(){
       nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();}); nodesRef.current=[];
       nodeData.forEach(n=>{addNode(map,n.lng,n.lat,n.type,n.name,false,n.height); if(n.modbusId) nodesRef.current[nodesRef.current.length-1].modbusId = n.modbusId;});
       if(fccVisible&&!showFCCTowers){toggleFCCTowers();}else if(!fccVisible&&showFCCTowers){toggleFCCTowers();}
+      // Update project tab name to match file
+      const fileName = file.name.replace(/\.json$/, "");
+      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, name: fileName } : p));
       let avgLat=0,avgLng=0; for(const n of nodeData){avgLat+=n.lat;avgLng+=n.lng;} avgLat/=nodeData.length;avgLng/=nodeData.length;
       map.flyTo({center:[avgLng,avgLat],zoom:13});
     };
-    reader.readAsText(e.target.files[0]);
+    reader.readAsText(file);
   }
   async function analyzeNetwork(){
     const recs=[];
@@ -1206,9 +1189,9 @@ async function toggleHeatmap(){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
       const path=getPath(a);if(!path.some(n=>n.type==="gateway"))continue;
       for(let p=0;p<path.length-1;p++){const p1=path[p],p2=path[p+1];
-        const recKey = [p1.name, p2.name].sort().join("→");
-        if(p1.blocked && !seenRecs.has("block-"+recKey)){seenRecs.add("block-"+recKey);recs.push({text:`⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,node:p1,target:p2});}
-        else if(p1.fresnelWarn && p1.fresnelTarget){const fKey=[p1.name,p1.fresnelTarget.name].sort().join("→");if(!seenRecs.has("fresnel-"+fKey)){seenRecs.add("fresnel-"+fKey);recs.push({text:`⚠️ ${p1.name.toUpperCase()} → ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% — increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}}
+        const recKey = [p1.name, p2.name].sort().join("\u2192");
+        if(p1.blocked && !seenRecs.has("block-"+recKey)){seenRecs.add("block-"+recKey);recs.push({text:`\u26F0\uFE0F ${p1.name.toUpperCase()} \u2192 ${p2.name.toUpperCase()}: Blocked LOS \u2014 adjust height`,node:p1,target:p2});}
+        else if(p1.fresnelWarn && p1.fresnelTarget){const fKey=[p1.name,p1.fresnelTarget.name].sort().join("\u2192");if(!seenRecs.has("fresnel-"+fKey)){seenRecs.add("fresnel-"+fKey);recs.push({text:`\u26A0\uFE0F ${p1.name.toUpperCase()} \u2192 ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% \u2014 increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}}
     }
     for(const a of nodesRef.current){
       if(a.type==="gateway")continue;if(a.type==="single")continue;
@@ -1235,7 +1218,7 @@ async function toggleHeatmap(){
         else{recs.push({text:`\uD83D\uDCE1 ${a.name.toUpperCase()}: Set antenna height to max ${targetHeight} ft (${bestSignal.toFixed(0)} dBm)`,node:a});}}
       } else {recs.push({text:`\u2705 ${a.name.toUpperCase()}: Good link (${bestSignal.toFixed(0)} dBm)`});}
     }
-    if(recs.length===0){setRecommendations([{text:"\u2705 All nodes connected \u2014 no action needed"}]);}else{setRecommendations(recs);}
+    if(recs.length===0){setRecommendations([{text:`\u2705 All nodes connected \u2014 no action needed`}]);}else{setRecommendations(recs);}
   }
   function importText(){
     if(!inputCoords.trim())return;
@@ -1252,7 +1235,7 @@ async function toggleHeatmap(){
   }
 
   async function optimizeExisting(){
-    const map=mapRef.current; if(!nodesRef.current.length)return; const recs=[];
+    if(!nodesRef.current.length)return; const map=mapRef.current; const recs=[];
     try{
       let hasGateway=nodesRef.current.some(n=>n.type==="gateway");
       if(!hasGateway){
@@ -1290,18 +1273,17 @@ async function toggleHeatmap(){
         }
       }
       await computeLinks();
-try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
-     for(const node of nodesRef.current){
+      try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
+      for(const node of nodesRef.current){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
         if(!path.some(n=>n.type==="gateway")){
-          // Only demote to single if it was upgraded to LRA during optimization but still can't connect
           if(node.type==="lra" && node._wasUpgraded){
             node.type="single"; node.range=0; node.outOfRange=false;
             if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
-            recs.push({text:`⚫ ${node.name.toUpperCase()}: No gateway path — set as Single Modem`});
+            recs.push({text:`\u26AB ${node.name.toUpperCase()}: No gateway path \u2014 set as Single Modem`});
           } else {
-            recs.push({text:`⚠️ ${node.name.toUpperCase()}: Cannot reach gateway — consider repositioning or adding LRA`});
+            recs.push({text:`\u26A0\uFE0F ${node.name.toUpperCase()}: Cannot reach gateway \u2014 consider repositioning or adding LRA`});
           }
         }
       }
@@ -1344,8 +1326,8 @@ try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fres
           for(let bh=10;bh<=30;bh+=5){for(let nh=5;nh<=30;nh+=5){const testLos=await checkLOS(bridge,node,bh,nh);if(testLos.clear){bridge.type="lra";bridge.height=bh;bridge.range=3;if(bridge.markerElement)bridge.markerElement.style.background="orange";if(nh>5){node.type="lra";node.height=nh;node.range=3;if(node.markerElement)node.markerElement.style.background="orange";}await computeLinks();break;}}if(bridge.type==="lra")break;}if(bridge.type==="lra")break;
         }
       }
-     await computeLinks();
-try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
+      await computeLinks();
+      try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
       for(const node of nodesRef.current){
         if(node.type==="gateway"||node.type==="single") continue;
         const path=getPath(node);
@@ -1360,6 +1342,110 @@ try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fres
     draw();setRecommendations(prev=>[...prev,...recs]);setShowOptimizePrompt(false);setNodeVersion(v=>v+1);
   }
 
+  // ========== MULTI-PROJECT FUNCTIONS ==========
+  function serializeProject(){
+    const map = mapRef.current;
+    return {
+      nodes: nodesRef.current.map(n => ({
+        name:n.name, type:n.type, lat:n.lat, lng:n.lng,
+        height:n.height, range:n.range, modbusId:n.modbusId||null
+      })),
+      undoStack: [...undoStack.current],
+      redoStack: [...redoStack.current],
+      mapCenter: map ? [map.getCenter().lng, map.getCenter().lat] : null,
+      mapZoom: map ? map.getZoom() : null
+    };
+  }
+
+  function loadProjectToMap(data){
+    const map = mapRef.current;
+    if(!map) return;
+    // Remove all node markers
+    nodesRef.current.forEach(n => { if(n.marker) n.marker.remove(); });
+    nodesRef.current = [];
+    linksRef.current = {};
+    // Clear measure tool
+    clearMeasure();
+    setMeasureMode(false);
+    // Clear UI state
+    setSelectedNode(null);
+    setShowProfile(false);
+    setRecommendations([]);
+    // Clear drawn layers
+    const layers = map.getStyle().layers || [];
+    layers.forEach(l => {
+      if(l.id.startsWith("line") || l.id.startsWith("label") || l.id.startsWith("route") || l.id === "all-nodes"){
+        if(map.getLayer(l.id)) map.removeLayer(l.id);
+        if(map.getSource(l.id)) map.removeSource(l.id);
+      }
+    });
+    // Clear heatmap data if visible
+    if(showHeatmapRef.current && map.getSource("signal-heatmap")){
+      map.getSource("signal-heatmap").setData({ type: "FeatureCollection", features: [] });
+    }
+    if(data && data.nodes && data.nodes.length > 0){
+      data.nodes.forEach(n => {
+        addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+        const added = nodesRef.current[nodesRef.current.length - 1];
+        if(n.modbusId) added.modbusId = n.modbusId;
+      });
+      undoStack.current = data.undoStack || [];
+      redoStack.current = data.redoStack || [];
+      if(data.mapCenter && data.mapZoom){
+        map.jumpTo({ center: data.mapCenter, zoom: data.mapZoom });
+      }
+      redraw();
+    } else {
+      undoStack.current = [];
+      redoStack.current = [];
+      setNodeVersion(v => v + 1);
+    }
+  }
+
+  function switchProject(newId){
+    if(newId === activeProjectId) return;
+    // Save current project
+    projectDataRef.current[activeProjectId] = serializeProject();
+    // Load new project
+    const newData = projectDataRef.current[newId] || null;
+    loadProjectToMap(newData);
+    setActiveProjectId(newId);
+  }
+
+  function addProject(){
+    const id = nextProjectIdRef.current++;
+    const name = prompt("Project name:", `Project ${id}`);
+    if(!name || !name.trim()) return;
+    // Save current project first
+    projectDataRef.current[activeProjectId] = serializeProject();
+    // Create new empty project
+    setProjects(prev => [...prev, { id, name: name.trim() }]);
+    projectDataRef.current[id] = null;
+    loadProjectToMap(null);
+    setActiveProjectId(id);
+  }
+
+  function deleteProject(id){
+    if(projects.length <= 1) return;
+    if(!confirm(`Delete "${projects.find(p => p.id === id)?.name}"?`)) return;
+    const remaining = projects.filter(p => p.id !== id);
+    delete projectDataRef.current[id];
+    setProjects(remaining);
+    if(id === activeProjectId){
+      const newActive = remaining[0].id;
+      const newData = projectDataRef.current[newActive] || null;
+      loadProjectToMap(newData);
+      setActiveProjectId(newActive);
+    }
+  }
+
+  function renameProject(id){
+    const current = projects.find(p => p.id === id);
+    const newName = prompt("Rename project:", current?.name || "");
+    if(!newName || !newName.trim()) return;
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName.trim() } : p));
+  }
+
 return (<div style={{display:"flex",height:"100vh"}}>
 {showOptimizePrompt && (<div style={{position:"absolute",top:"30%",left:"35%",background:"#fff",padding:20,border:"2px solid black",zIndex:1000}}>
   <div style={{marginBottom:10,fontWeight:"bold"}}>Do you want to Auto-Optimize this network?</div>
@@ -1367,66 +1453,114 @@ return (<div style={{display:"flex",height:"100vh"}}>
   <button onClick={()=>{setShowOptimizePrompt(false);importedData.forEach(r=>{addNode(mapRef.current,r.Longitude,r.Latitude,"sra",r.Name);});
     let avgLat=0,avgLng=0;for(const r of importedData){avgLat+=r.Latitude;avgLng+=r.Longitude;}avgLat/=importedData.length;avgLng/=importedData.length;mapRef.current.flyTo({center:[avgLng,avgLat],zoom:13});}}>No</button>
 </div>)}
-<div style={{width:300,display:"flex",flexDirection:"column",height:"100%",borderRight:"1px solid #ccc"}}>
+<div style={{width:300,display:"flex",flexDirection:"column",height:"100%",borderRight:"1px solid #333",background:"#1a1a2e"}}>
+  {/* ========== PROJECT TABS ========== */}
+  <div style={{display:"flex",alignItems:"center",borderBottom:"2px solid #333",background:"#0d0d1a",padding:"0",overflowX:"auto",flexShrink:0,minHeight:36}}>
+    {projects.map(p => (
+      <div key={p.id}
+        onClick={() => switchProject(p.id)}
+        onDoubleClick={(e) => { e.stopPropagation(); renameProject(p.id); }}
+        title="Click to switch \u2022 Double-click to rename"
+        style={{
+          display:"flex",alignItems:"center",gap:4,
+          padding:"8px 12px",
+          background: p.id === activeProjectId ? "#1a1a2e" : "transparent",
+          color: p.id === activeProjectId ? "#00bcd4" : "#aaa",
+          borderBottom: p.id === activeProjectId ? "2px solid #00bcd4" : "2px solid transparent",
+          cursor:"pointer",fontSize:12,fontWeight:"bold",
+          whiteSpace:"nowrap",userSelect:"none",
+          transition:"all 0.15s"
+        }}>
+        <span>{p.name}</span>
+        {projects.length > 1 && (
+          <span
+            onClick={(e) => { e.stopPropagation(); deleteProject(p.id); }}
+            style={{color: p.id === activeProjectId ? "#00bcd4" : "#999",cursor:"pointer",fontSize:14,marginLeft:2,lineHeight:"1"}}
+            onMouseEnter={e => e.target.style.color = "red"}
+            onMouseLeave={e => e.target.style.color = p.id === activeProjectId ? "#00bcd4" : "#999"}
+          >{"\u00D7"}</span>
+        )}
+      </div>
+    ))}
+    <button onClick={addProject} title="New Project" style={{
+      padding:"4px 10px",background:"transparent",color:"#999",
+      border:"none",cursor:"pointer",fontSize:18,fontWeight:"bold",flexShrink:0
+    }}
+    onMouseEnter={e => e.target.style.color = "#00bcd4"}
+    onMouseLeave={e => e.target.style.color = "#999"}
+    >+</button>
+  </div>
+  {/* ========== SIDEBAR CONTENT ========== */}
   <div style={{padding:12}}>
     <div style={{display:"flex",gap:4}}>
-      <button onClick={()=>setMode("gateway")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="gateway"?"#0000cc":"blue",fontWeight:"bold",fontSize:11}}>🔵 Gateway</button>
-      <button onClick={()=>setMode("lra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="lra"?"#cc7a00":"orange",fontWeight:"bold",fontSize:11}}>🟠 LRA</button>
-      <button onClick={()=>setMode("sra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="sra"?"#2e7d32":"green",fontWeight:"bold",fontSize:11}}>🟢 SRA</button>
-      <button onClick={()=>setMode("single")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="single"?"#333":"black",fontWeight:"bold",fontSize:11}}>⚫ Single</button>
+      <button onClick={()=>setMode("gateway")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="gateway"?"#0000cc":"blue",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDD35"} Gateway</button>
+      <button onClick={()=>setMode("lra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="lra"?"#cc7a00":"orange",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE0"} LRA</button>
+      <button onClick={()=>setMode("sra")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="sra"?"#2e7d32":"green",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE2"} SRA</button>
+      <button onClick={()=>setMode("single")} style={{flex:1,padding:"6px",border:"none",cursor:"pointer",color:"white",background:mode==="single"?"#333":"black",fontWeight:"bold",fontSize:11}}>{"\u26AB"} Single</button>
     </div>
-    <button onClick={optimizeExisting} style={{marginTop:6,width:"100%",background:"#4CAF50",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>⚡ Auto-Optimize</button>
-    <button onClick={()=>{nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();});nodesRef.current=[];linksRef.current={};setRecommendations([]);setSelectedNode(null);redraw();}} style={{marginTop:6,width:"100%",background:"#f44336",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>🗑️ Clear All</button>
+    <button onClick={optimizeExisting} style={{marginTop:6,width:"100%",background:"#4CAF50",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\u26A1"} Auto-Optimize</button>
+    <button onClick={()=>{nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();});nodesRef.current=[];linksRef.current={};setRecommendations([]);setSelectedNode(null);redraw();}} style={{marginTop:6,width:"100%",background:"#f44336",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\uD83D\uDDD1\uFE0F"} Clear All</button>
   </div>
   <div style={{flex:1,overflowY:"auto",padding:12}}>
     <div style={{position:"relative"}}>
-      <button onClick={()=>setShowFileMenu(!showFileMenu)} style={{width:"100%",marginBottom:6,background:"#555",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>📁 File {showFileMenu?"▲":"▼"}</button>
+      <button onClick={()=>setShowFileMenu(!showFileMenu)} style={{width:"100%",marginBottom:6,background:"#555",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>{"\uD83D\uDCC1"} File {showFileMenu?"\u25B2":"\u25BC"}</button>
       {showFileMenu && (<div style={{background:"#333",border:"1px solid #555",borderRadius:4,marginBottom:6,overflow:"hidden"}}>
-        <button onClick={()=>{saveNetwork();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"white",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>💾 Save Network</button>
-        <label style={{display:"block",width:"100%",padding:"8px 12px",color:"white",borderBottom:"1px solid #444",cursor:"pointer",fontSize:13,boxSizing:"border-box"}}>📂 Load Network<input type="file" accept=".json" onChange={(e)=>{loadNetwork(e);setShowFileMenu(false);}} style={{display:"none"}}/></label>
-        <button onClick={()=>{exportExcel();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#FF9800",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>📊 Export to Excel</button>
-        <button onClick={()=>{exportBundle();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#CE93D8",border:"none",cursor:"pointer",textAlign:"left",fontSize:13}}>📦 Export All (Zip)</button>
+        <button onClick={()=>{saveNetwork();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"white",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCBE"} Save Network</button>
+        <label style={{display:"block",width:"100%",padding:"8px 12px",color:"white",borderBottom:"1px solid #444",cursor:"pointer",fontSize:13,boxSizing:"border-box"}}>{"\uD83D\uDCC2"} Load Network<input type="file" accept=".json" onChange={(e)=>{loadNetwork(e);setShowFileMenu(false);}} style={{display:"none"}}/></label>
+        <button onClick={()=>{exportExcel();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#FF9800",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCCA"} Export to Excel</button>
+        <button onClick={()=>{exportBundle();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#CE93D8",border:"none",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCE6"} Export All (Zip)</button>
       </div>)}
     </div>
     <div style={{display:"flex",gap:4,marginTop:6}}>
-      <button onClick={undo} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>↩️ Undo</button>
-      <button onClick={redo} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>↪️ Redo</button>
+      <button onClick={undo} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\u21A9\uFE0F"} Undo</button>
+      <button onClick={redo} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\u21AA\uFE0F"} Redo</button>
     </div>
     <div style={{display:"flex",gap:4,marginTop:6}}>
-      <button onClick={()=>{clearMeasure();setMeasureMode(!measureMode);}} style={{flex:1,background:measureMode?"#ff00ff":"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{measureMode?"📏 Measuring...":"📏 Measure"}</button>
-      <button onClick={()=>{clearMeasure();setMeasureMode(false);}} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>✕ Clear</button>
-      <button onClick={()=>{if(measurePoints.current.length===2){generateMeasureProfile(measurePoints.current[0],measurePoints.current[1]);}}} style={{flex:1,background:"#8B7355",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>📊 Profile</button>
+      <button onClick={()=>{clearMeasure();setMeasureMode(!measureMode);}} style={{flex:1,background:measureMode?"#ff00ff":"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{measureMode?"\uD83D\uDCCF Measuring...":"\uD83D\uDCCF Measure"}</button>
+      <button onClick={()=>{clearMeasure();setMeasureMode(false);}} style={{flex:1,background:"#666",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\u2715"} Clear</button>
+      <button onClick={()=>{if(measurePoints.current.length===2){generateMeasureProfile(measurePoints.current[0],measurePoints.current[1]);}}} style={{flex:1,background:"#8B7355",color:"white",padding:"6px",border:"none",cursor:"pointer"}}>{"\uD83D\uDCCA"} Profile</button>
     </div>
     <hr/>
     <textarea value={inputCoords} onChange={e=>setInputCoords(e.target.value)} placeholder="Name,Lat,Lng" style={{width:"100%",height:80}}/>
-    <button onClick={importText} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>📍 Import Coordinates</button>
-    <label style={{display:"block",width:"100%",marginBottom:6,padding:"6px",background:"#2196F3",color:"white",textAlign:"center",cursor:"pointer",border:"none",fontSize:14,boxSizing:"border-box"}}>📂 Upload Excel<input type="file" accept=".xlsx,.xls" onChange={uploadExcel} style={{display:"none"}}/></label>
+    <button onClick={importText} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>{"\uD83D\uDCCD"} Import Coordinates</button>
+    <label style={{display:"block",width:"100%",marginBottom:6,padding:"6px",background:"#2196F3",color:"white",textAlign:"center",cursor:"pointer",border:"none",fontSize:14,boxSizing:"border-box"}}>{"\uD83D\uDCC2"} Upload Excel<input type="file" accept=".xlsx,.xls" onChange={uploadExcel} style={{display:"none"}}/></label>
     <hr/>
-    
     <hr/>
     <div>
-      <div style={{fontWeight:"bold",marginBottom:6}}>Nodes ({nodesRef.current.length})</div>
-      <div style={{fontSize:11,color:"#888",marginBottom:2}}>🔵 {nodesRef.current.filter(n=>n.type==="gateway").length} Gateway{" | "}🟠 {nodesRef.current.filter(n=>n.type==="lra").length} LRA{" | "}🟢 {nodesRef.current.filter(n=>n.type==="sra").length} SRA</div>
-      <div style={{fontSize:11,color:"#888",marginBottom:6}}>⚫ {nodesRef.current.filter(n=>n.type==="single").length} Single Modem
-        {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length>0&&(<span style={{color:"red"}}>{" | "}⚠️ {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length} Disconnected</span>)}
+      <div style={{fontWeight:"bold",marginBottom:6,color:"#fff"}}>Nodes ({nodesRef.current.length})</div>
+      <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>{"\uD83D\uDD35"} {nodesRef.current.filter(n=>n.type==="gateway").length} Gateway{" | "}{"\uD83D\uDFE0"} {nodesRef.current.filter(n=>n.type==="lra").length} LRA{" | "}{"\uD83D\uDFE2"} {nodesRef.current.filter(n=>n.type==="sra").length} SRA</div>
+      <div style={{fontSize:11,color:"#aaa",marginBottom:6}}>{"\u26AB"} {nodesRef.current.filter(n=>n.type==="single").length} Single Modem
+        {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length>0&&(<span style={{color:"red"}}>{" | "}{"\u26A0\uFE0F"} {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length} Disconnected</span>)}
       </div>
       {nodesRef.current.map((n,i)=>(<div key={i} style={{marginBottom:4}}>
-        <span style={{color:n.outOfRange||n.type==="single"?"black":n.type==="gateway"?"blue":n.type==="lra"?"orange":"green",cursor:"pointer",textDecoration:"underline"}}
-          onClick={()=>{mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});setSelectedNode(n);setEditName(n.name);setEditType(n.type);setEditHeight(n.height);setEditModbus(n.modbusId||"");}}>
-         {n.name} ({n.type.toUpperCase()}) {n.type!=="single"?`${n.recommendedHeight||n.height} ft`:""}{n.modbusId ? ` [M:${n.modbusId}]` : ""}
+        <span style={{color:n.outOfRange||n.type==="single"?"#999":n.type==="gateway"?"blue":n.type==="lra"?"orange":"green",cursor:"pointer",textDecoration:"underline"}}
+         onClick={()=>{
+  mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});
+  setSelectedNode(n);setEditName(n.name);setEditType(n.type);setEditHeight(n.height);setEditModbus(n.modbusId||"");
+  if(n.type !== "gateway" && n.type !== "single" && linksRef.current[n.name]){
+    try{ generateProfile(n); }catch(err){ console.log("Profile error:", err); }
+  } else {
+    setProfileData({ from: n, to: n, points: [{dist:0,elev:0,lng:n.lng,lat:n.lat}], totalDist: 0, isMeasure: false });
+    setProfileFromHeight(n.height); setProfileToHeight(n.height);
+    setProfileFromType(n.type); setProfileToType(n.type);
+    setShowProfile(true);
+  }
+}}>
+          {n.name} ({n.type.toUpperCase()}) {n.type!=="single"?`${n.recommendedHeight||n.height} ft`:""}{n.modbusId ? ` [M:${n.modbusId}]` : ""}
         </span>
-        {n.elevation!==null&&(<span style={{color:"#888",fontSize:11}}>{" "}| Elev: {n.elevation}ft</span>)}
+        {n.elevation!==null&&(<span style={{color:"#aaa",fontSize:11}}>{" "}| Elev: {n.elevation}ft</span>)}
         {n.blocked&&n.blockDetail&&(<div style={{color:"red",fontSize:11,marginLeft:10}}>{n.blockDetail}</div>)}
       </div>))}
     </div>
     <hr/>
     {recommendations.map((r,i)=>(<div key={i} style={{marginBottom:6,cursor:r.node?"pointer":"default",textDecoration:r.node?"underline":"none",color:r.node?"#2196F3":"inherit"}}
-      onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" 📊"}</div>))}
+      onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" \uD83D\uDCCA"}</div>))}
   </div>
 </div>
+
    {showProfile&&profileData&&(<div style={{position:"absolute",top:"2%",left:"10%",width:"80%",maxHeight:"96vh",background:"#1a1a2e",border:"2px solid #00bcd4",borderRadius:8,zIndex:2000,padding:8,overflow:"auto"}}>
  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:2}}>
-    <button onClick={()=>setShowProfile(false)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontWeight:"bold",fontSize:14}}>✕</button>
+    <button onClick={()=>setShowProfile(false)} style={{background:"red",color:"white",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontWeight:"bold",fontSize:14}}>{"\u2715"}</button>
   </div>
   <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
     <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -1466,7 +1600,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
         selectedNode.name=editName;selectedNode.modbusId=selectedNode.type==="gateway"?null:(editModbus||null);
         saveSnapshot();setNodeVersion(v=>v+1);redraw();
       }} style={{padding:"4px 12px",background:"#4CAF50",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:"bold",fontSize:11}}>
-        💾 Save
+        {"\uD83D\uDCBE"} Save
       </button>
     </div>
   )}
@@ -1477,8 +1611,8 @@ return (<div style={{display:"flex",height:"100vh"}}>
     <div style={{position:"absolute",bottom:30,right:10,zIndex:1000,background:"rgba(20,20,30,0.9)",
       border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"10px 14px",
       backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)"}}>
-      <div style={{color:"#fff",fontWeight:"bold",fontSize:12,marginBottom:6}}>📡 Signal Coverage</div>
-     {[
+      <div style={{color:"#fff",fontWeight:"bold",fontSize:12,marginBottom:6}}>{"\uD83D\uDCE1"} Signal Coverage</div>
+      {[
         {color:"#008000",label:"Strong (Gateway)"},
         {color:"#00c800",label:"Good"},
         {color:"#00ffff",label:"Moderate"},
@@ -1493,13 +1627,13 @@ return (<div style={{display:"flex",height:"100vh"}}>
       ))}
     </div>
   )}
-<button onClick={toggleHeatmap} style={{position:"absolute",top:10,right:170,zIndex:1000,padding:"8px 14px",
+  <button onClick={toggleHeatmap} style={{position:"absolute",top:10,right:170,zIndex:1000,padding:"8px 14px",
     background:showHeatmap?"#4CAF50":"rgba(50,50,50,0.85)",
     color:showHeatmap?"#fff":"#fff",
     border:showHeatmap?"2px solid #388E3C":"2px solid rgba(255,255,255,0.3)",
     borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:13,
     backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.4)"}}>
-    {showHeatmap?"📡 Heatmap ✅":"📡 Heatmap"}
+    {showHeatmap?"\uD83D\uDCE1 Heatmap \u2705":"\uD83D\uDCE1 Heatmap"}
   </button>
   <button onClick={toggleFCCTowers} style={{position:"absolute",top:10,right:10,zIndex:1000,padding:"8px 14px",
     background:showFCCTowers?"#FFD700":"rgba(50,50,50,0.85)",
@@ -1507,7 +1641,7 @@ return (<div style={{display:"flex",height:"100vh"}}>
     border:showFCCTowers?"2px solid #DAA520":"2px solid rgba(255,255,255,0.3)",
     borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:13,
     backdropFilter:"blur(4px)",boxShadow:"0 2px 8px rgba(0,0,0,0.4)"}}>
-    {fccLoading?"⏳ Loading...":showFCCTowers?"🗼 FCC Towers ✅":"🗼 FCC Towers"}
+    {fccLoading?"\u23F3 Loading...":showFCCTowers?"\uD83D\uDDFC FCC Towers \u2705":"\uD83D\uDDFC FCC Towers"}
   </button>
 </div>
 </div>);
