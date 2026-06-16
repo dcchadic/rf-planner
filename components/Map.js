@@ -208,14 +208,17 @@ export default function Map(){
       node.lng=p.lng; node.lat=p.lat; node.elevation = null; redraw();
     });
     el.oncontextmenu=(e)=>{
-      e.preventDefault(); marker.remove();
+      e.preventDefault();
+      saveSnapshot();
+      marker.remove();
       nodesRef.current = nodesRef.current.filter(n=>n!==node);
-      saveSnapshot(); redraw();
+      redraw();
     };
     if(customHeight && !node.modbusId && type !== "gateway"){ node.modbusId = nodesRef.current.filter(n => n.type !== "gateway").length + 1; }
-    node.marker = marker;
+   node.marker = marker;
+    if (!silent){ saveSnapshot(); }
     nodesRef.current.push(node);
-    if (!silent){ saveSnapshot(); redraw(); }
+    if (!silent){ redraw(); }
   }
 
   // ---------- ROUTING ----------
