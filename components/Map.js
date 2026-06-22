@@ -6,6 +6,12 @@ import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import html2canvas from "html2canvas";
+// =====================================================
+// NEW RF ENGINE IMPORTS (Path A — runs alongside the old one)
+// =====================================================
+import { runFullOptimizer } from "./rf/optimizer.js";
+import { readKmzToPlacemarks } from "./rf/kmlImporter.js";
+import { computeLinks as newComputeLinks } from "./rf/links.js";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -13,6 +19,93 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 const elevationCache = {};
 const fresnelCache = {};
 
+// =====================================================
+// MAP LEGEND COMPONENT
+// =====================================================
+function MapLegend(){
+  const [open, setOpen] = useState(true);
+
+  const nodeStates = [
+    { color: "blue",   label: "Gateway" },
+    { color: "orange", label: "LRA" },
+    { color: "green",  label: "SRA" },
+    { color: "black",  label: "Single Modem" },
+    { color: "#666",   border: "2px solid red",     label: "Disconnected (impossible)" },
+    { color: "green",  border: "2px solid #ff1493", glow: true, label: "Flagged (above max height)" },
+  ];
+
+  const lineStates = [
+    { color: "rgb(46,125,50)",  label: "Strong (Fresnel ≥ 80%)" },
+    { color: "rgb(255,215,0)",  label: "Marginal Fresnel" },
+    { color: "rgb(255,152,0)",  label: "Weak Fresnel" },
+    { color: "rgb(244,67,54)",  label: "Fringe" },
+    { color: "#a64ca6",         label: "Flagged-but-allowed" },
+    { color: "#ff3333", dashed: true, label: "Blocked / impossible LOS" },
+  ];
+
+  return (
+    <div style={{
+      position: "absolute",
+      bottom: 30,
+      left: 10,
+      zIndex: 1000,
+      background: "rgba(20,20,30,0.92)",
+      border: "1px solid rgba(255,255,255,0.3)",
+      borderRadius: 8,
+      padding: open ? "10px 14px" : "6px 10px",
+      backdropFilter: "blur(4px)",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+      maxWidth: 240,
+      color: "#fff",
+      fontSize: 12
+    }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          marginBottom: open ? 6 : 0,
+          fontWeight: "bold"
+        }}
+        onClick={() => setOpen(!open)}
+      >
+        <span>🗺️ Map Legend</span>
+        <span style={{ marginLeft: 8, fontSize: 11, color: "#aaa" }}>
+          {open ? "▼" : "▶"}
+        </span>
+      </div>
+
+      {open && (
+        <div>
+          <div style={{ fontWeight: "bold", color: "#aaa", marginTop: 4, marginBottom: 4 }}>Nodes</div>
+          {nodeStates.map((s, i) => (
+            <div key={"n" + i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{
+  width: 14, height: 14, borderRadius: "50%",
+  background: s.color,
+  border: s.border || "1px solid rgba(255,255,255,0.3)",
+  boxShadow: s.glow ? "0 0 6px #ff1493" : "none"
+}}/>
+              <span style={{ color: "#ddd" }}>{s.label}</span>
+            </div>
+          ))}
+
+          <div style={{ fontWeight: "bold", color: "#aaa", marginTop: 8, marginBottom: 4 }}>Routes</div>
+          {lineStates.map((s, i) => (
+            <div key={"l" + i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{
+                width: 22, height: 4, borderRadius: 2,
+                background: s.dashed ? `repeating-linear-gradient(90deg, ${s.color} 0 6px, transparent 6px 10px)` : s.color
+              }}/>
+              <span style={{ color: "#ddd" }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 export default function Map(){
 
   const containerRef = useRef(null);
@@ -21,9 +114,8 @@ export default function Map(){
   const linksRef = useRef({});
   const undoStack = useRef([]);
   const redoStack = useRef([]);
-
-  const [mode,setMode] = useState("sra");
-  const [inputCoords,setInputCoords] = useState("");
+  const [mode, setMode] = useState("sra"); // node placement mode (gateway/lra/sra/single)
+   const [inputCoords,setInputCoords] = useState("");
   const [recommendations,setRecommendations] = useState([]);
   const [showOptimizePrompt, setShowOptimizePrompt] = useState(false);
   const [importedData, setImportedData] = useState([]);
@@ -46,6 +138,12 @@ export default function Map(){
   const measureMarkersRef = useRef([]);
   const skipNextClick = useRef(false);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  // =====================================================
+// PROGRESS OVERLAY STATE
+// loadingState = null    → idle (hidden)
+// loadingState = { title: "...", subtitle: "...", progress: 0..1 (optional) }
+// =====================================================
+const [loadingState, setLoadingState] = useState(null);
 
   // ---------- FCC TOWER STATE ----------
   const [showFCCTowers, setShowFCCTowers] = useState(false);
@@ -177,32 +275,49 @@ export default function Map(){
     };
     const marker = new mapboxgl.Marker({element:el,draggable:true})
       .setLngLat([lng,lat]).addTo(map);
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      skipNextClick.current = true;
-      setSelectedNode(node);
-      setEditName(node.name);
-      setEditType(node.type);
-      setEditHeight(node.height);
-      setEditModbus(node.modbusId || "");
+    // =====================================================
+// MAP NODE CLICK BEHAVIOR
+// Single click → open node editor only
+// Double click → open terrain profile to connected node
+// =====================================================
+el.addEventListener("click", (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  skipNextClick.current = true;
+
+  // Stop Mapbox from also handling this click
+  if (e.nativeEvent) e.nativeEvent.stopImmediatePropagation?.();
+
+  setSelectedNode(node);
+  setEditName(node.name);
+  setEditType(node.type);
+  setEditHeight(node.height);
+  setEditModbus(node.modbusId || "");
+});
+
+el.addEventListener("dblclick", (e) => {
+  e.stopPropagation();
+  skipNextClick.current = true;
+
+  // Only open the terrain profile — do NOT open the editor
+  if (node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]) {
+    try { generateProfile(node); } catch (err) { console.log("Profile error:", err); }
+  } else {
+    // No link target — show an empty profile so user sees something useful
+    setProfileData({
+      from: node,
+      to: node,
+      points: [{ dist: 0, elev: 0, lng: node.lng, lat: node.lat }],
+      totalDist: 0,
+      isMeasure: false
     });
-    el.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      skipNextClick.current = true;
-      setSelectedNode(node);
-      setEditName(node.name);
-      setEditType(node.type);
-      setEditHeight(node.height);
-      setEditModbus(node.modbusId || "");
-      if(node.type !== "gateway" && node.type !== "single" && linksRef.current[node.name]){
-        try{ generateProfile(node); }catch(err){ console.log("Profile error:", err); }
-      } else {
-        setProfileData({ from: node, to: node, points: [{dist:0,elev:0,lng:node.lng,lat:node.lat}], totalDist: 0, isMeasure: false });
-        setProfileFromHeight(node.height); setProfileToHeight(node.height);
-        setProfileFromType(node.type); setProfileToType(node.type);
-        setShowProfile(true);
-      }
-    });
+    setProfileFromHeight(node.height);
+    setProfileToHeight(node.height);
+    setProfileFromType(node.type);
+    setProfileToType(node.type);
+    setShowProfile(true);
+  }
+});
     marker.on("dragend",()=>{
       const p = marker.getLngLat();
       node.lng=p.lng; node.lat=p.lat; node.elevation = null; redraw();
@@ -332,110 +447,178 @@ export default function Map(){
     return path;
   }
 
-  // ---------- DRAW ----------
-  async function draw(){
-    const map = mapRef.current;
-    if(!map) return;
-    for (const n of nodesRef.current){ n.blocked = false; n.blockDetail = null; n.fresnelWarn = false; n.fresnelDetail = null; n.fresnelTarget = null; }
-    await computeLinks();
-    for (const n of nodesRef.current){
-      if (n.type === "gateway") { n.outOfRange = false; continue; }
-      if (n.type === "single") { n.outOfRange = false; continue; }
-      const path = getPath(n);
-      n.outOfRange = !path.some(p => p.type === "gateway");
+// ---------- DRAW (v2 — visual polish for new optimizer) ----------
+async function draw(){
+  const map = mapRef.current;
+  if(!map) return;
+
+  // Reset link/visual states
+  for (const n of nodesRef.current){
+    n.blocked = false;
+    n.blockDetail = null;
+    n.fresnelWarn = false;
+    n.fresnelDetail = null;
+    n.fresnelTarget = null;
+    n.flagged = false;
+  }
+
+  await computeLinks();
+
+  // Mark connectivity
+  for (const n of nodesRef.current){
+    if (n.type === "gateway" || n.type === "single") {
+      n.outOfRange = false;
+      continue;
     }
-    console.log("LINKS:", linksRef.current);
-    const layers = map.getStyle().layers || [];
-    layers.forEach(l=>{
-      if(l.id.startsWith("node") || l.id.startsWith("line") || l.id.startsWith("label") || l.id.startsWith("route") || l.id === "all-nodes"){
-        if(map.getLayer(l.id)) map.removeLayer(l.id);
-        if(map.getSource(l.id)) map.removeSource(l.id);
+    const path = getPath(n);
+    n.outOfRange = !path.some(p => p.type === "gateway");
+  }
+
+  // Clear old layers
+  const layers = map.getStyle().layers || [];
+  layers.forEach(l => {
+    if (
+      l.id.startsWith("node") ||
+      l.id.startsWith("line") ||
+      l.id.startsWith("label") ||
+      l.id.startsWith("route") ||
+      l.id === "all-nodes"
+    ) {
+      if (map.getLayer(l.id)) map.removeLayer(l.id);
+      if (map.getSource(l.id)) map.removeSource(l.id);
+    }
+  });
+
+  // Node text labels
+  const nodeFeatures = [];
+  for (let k = 0; k < nodesRef.current.length; k++) {
+    const nd = nodesRef.current[k];
+    if (nd.elevation === null) {
+      nd.elevation = Math.round(await getElevation(nd.lng, nd.lat));
+    }
+    nodeFeatures.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [nd.lng, nd.lat] },
+      properties: {
+        text: nd.type === "single"
+          ? `${nd.name}\nElev ${nd.elevation || '...'}ft`
+          : `${nd.name}\n${nd.height}ft AGL | Elev ${nd.elevation || '...'}ft`
       }
     });
-    const nodeFeatures = [];
-    for(let k=0; k<nodesRef.current.length; k++){
-      const nd = nodesRef.current[k];
-      if (nd.elevation === null){ nd.elevation = Math.round(await getElevation(nd.lng, nd.lat)); }
-      nodeFeatures.push({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [nd.lng, nd.lat] },
-        properties: {
-          text: nd.type === "single"
-            ? `${nd.name}\nElev ${nd.elevation || '...'}ft`
-            : `${nd.name}\n${nd.height}ft AGL | Elev ${nd.elevation || '...'}ft`
-        }
+  }
+  if (map.getLayer("all-nodes")) map.removeLayer("all-nodes");
+if (map.getSource("all-nodes")) map.removeSource("all-nodes");
+map.addSource("all-nodes", { type: "geojson", data: { type: "FeatureCollection", features: nodeFeatures } });
+  map.addLayer({
+    id: "all-nodes", type: "symbol", source: "all-nodes",
+    layout: {
+      "text-field": ["get", "text"],
+      "text-size": 13,
+      "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+      "text-variable-anchor": ["top","bottom","left","right"],
+      "text-radial-offset": 1.2,
+      "text-justify": "auto",
+      "text-allow-overlap": false
+    },
+    paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
+  });
+
+  // Helper to detect flagged height usage
+  function isFlaggedHeight(n) {
+    if (!n) return false;
+    if (n.type === "gateway" && n.height > 25) return true;
+    if (n.type === "lra" && n.height > 20) return true;
+    if (n.type === "sra" && n.height > 5) return true;
+    return false;
+  }
+
+  // Draw links
+  const drawnLinks = new Set();
+  for (let i = 0; i < nodesRef.current.length; i++) {
+    const a = nodesRef.current[i];
+    if (a.type === "gateway" || a.type === "single") continue;
+
+    const path = getPath(a);
+    if (!path || path.length < 2) continue;
+
+    for (let j = 0; j < path.length - 1; j++) {
+      const p1 = path[j];
+      const p2 = path[j + 1];
+      const linkKey = [p1.name, p2.name].sort().join("→");
+      if (drawnLinks.has(linkKey)) continue;
+      drawnLinks.add(linkKey);
+
+      const los = await checkLOS(p1, p2, p1.height, p2.height);
+      const d = distance(p1, p2);
+      const signal = calcPower(d);
+      const flaggedByHeight = isFlaggedHeight(p1) || isFlaggedHeight(p2);
+
+      if (!los.clear) {
+        p1.blocked = true;
+        p1.blockDetail = `⛰️ +${Math.ceil(los.requiredHeight)}ft to clear → ${p2.name}`;
+      }
+      if (flaggedByHeight) {
+        p1.flagged = true;
+      }
+
+      const lineId = `line-${i}-${j}`;
+      map.addSource(lineId, {
+        type: "geojson",
+        data: { type: "Feature", geometry: { type: "LineString", coordinates: [[p1.lng, p1.lat],[p2.lng, p2.lat]] } }
       });
-    }
-    map.addSource("all-nodes", { type: "geojson", data: { type: "FeatureCollection", features: nodeFeatures } });
-    map.addLayer({
-      id: "all-nodes", type: "symbol", source: "all-nodes",
-      layout: { "text-field": ["get", "text"], "text-size": 13, "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
-        "text-variable-anchor": ["top","bottom","left","right"],
-        "text-radial-offset": 1.2, "text-justify": "auto", "text-allow-overlap": false },
-      paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
-    });
-    const drawnLinks = new Set();
-    for(let i=0;i<nodesRef.current.length;i++){
-      const a = nodesRef.current[i];
-      if(a.type==="gateway") continue;
-      if(a.type==="single") continue;
-      const path = getPath(a);
-      if (!path || path.length < 2) continue;
-      for(let j=0;j<path.length-1;j++){
-        const p1 = path[j]; const p2 = path[j+1];
-        const linkKey = [p1.name, p2.name].sort().join("\u2192");
-        if(drawnLinks.has(linkKey)) continue;
-        drawnLinks.add(linkKey);
-        const los = await checkLOS(p1, p2, p1.height, p2.height);
-        const d = distance(p1,p2);
-        const signal = calcPower(d);
-        if (!los.clear){
-          p1.blocked = true;
-          p1.blockDetail = `\u26F0\uFE0F +${Math.ceil(los.requiredHeight)}ft to clear \u2192 ${p2.name}`;
-        }
-        const lineId = `line-${i}-${j}`;
-        if (map.getSource(lineId)) { try { map.removeLayer(lineId); map.removeSource(lineId); } catch {} }
-        map.addSource(lineId,{ type:"geojson", data:{ type:"Feature", geometry:{ type:"LineString", coordinates:[[p1.lng,p1.lat],[p2.lng,p2.lat]] } } });
-        let fresnelPct = 100;
-        if(los.clear){
-          const totalDistM2 = d * 1609.34;
-          const wl = 0.333;
-          if(totalDistM2 > 0){
-            const elev1 = await getElevation(p1.lng, p1.lat);
-            const elev2 = await getElevation(p2.lng, p2.lat);
-            const tip1f = elev1 + p1.height;
-            const tip2f = elev2 + p2.height;
-            const checkSteps = 20;
-            for(let s = 1; s < checkSteps; s++){
-              const t2 = s / checkSteps;
-              const d1m = t2 * totalDistM2;
-              const d2m = totalDistM2 - d1m;
-              const fR = (d1m > 0 && d2m > 0) ? Math.sqrt(wl * d1m * d2m / totalDistM2) * 3.281 : 0;
-              if(fR <= 0) continue;
-              const lng2 = p1.lng + (p2.lng - p1.lng) * t2;
-              const lat2 = p1.lat + (p2.lat - p1.lat) * t2;
-              const ev = await getElevation(lng2, lat2);
-              const losE = tip1f + (tip2f - tip1f) * t2;
-              const cl = losE - ev;
-              const pct2 = (cl / fR) * 100;
-              if(pct2 < fresnelPct) fresnelPct = pct2;
-            }
+
+      // Fresnel %
+      let fresnelPct = 100;
+      if (los.clear) {
+        const totalDistM2 = d * 1609.34;
+        const wl = 0.333;
+        if (totalDistM2 > 0) {
+          const elev1 = await getElevation(p1.lng, p1.lat);
+          const elev2 = await getElevation(p2.lng, p2.lat);
+          const tip1f = elev1 + p1.height;
+          const tip2f = elev2 + p2.height;
+          const checkSteps = 20;
+          for (let s = 1; s < checkSteps; s++) {
+            const t2 = s / checkSteps;
+            const d1m = t2 * totalDistM2;
+            const d2m = totalDistM2 - d1m;
+            const fR = (d1m > 0 && d2m > 0)
+              ? Math.sqrt(wl * d1m * d2m / totalDistM2) * 3.281
+              : 0;
+            if (fR <= 0) continue;
+            const lng2 = p1.lng + (p2.lng - p1.lng) * t2;
+            const lat2 = p1.lat + (p2.lat - p1.lat) * t2;
+            const ev = await getElevation(lng2, lat2);
+            const losE = tip1f + (tip2f - tip1f) * t2;
+            const cl = losE - ev;
+            const pct2 = (cl / fR) * 100;
+            if (pct2 < fresnelPct) fresnelPct = pct2;
           }
         }
-        let lineColor = "red";
-        if(los.clear){
+      }
+
+      // Determine line color
+      let lineColor = "red";
+      let lineDash = null;
+
+      if (los.clear) {
+        if (flaggedByHeight) {
+          lineColor = "#a64ca6"; // purple = flagged-but-allowed
+        } else {
           const fp = Math.max(0, Math.min(100, fresnelPct));
           const stops = [
-            { pct: 0, r: 244, g: 67, b: 54 },
-            { pct: 20, r: 255, g: 152, b: 0 },
-            { pct: 40, r: 255, g: 215, b: 0 },
-            { pct: 60, r: 139, g: 195, b: 74 },
-            { pct: 80, r: 76, g: 175, b: 80 },
-            { pct: 100, r: 46, g: 125, b: 50 }
+            { pct:0,   r:244,g:67, b:54  },
+            { pct:20,  r:255,g:152,b:0   },
+            { pct:40,  r:255,g:215,b:0   },
+            { pct:60,  r:139,g:195,b:74  },
+            { pct:80,  r:76, g:175,b:80  },
+            { pct:100, r:46, g:125,b:50  }
           ];
           let lower = stops[0], upper = stops[stops.length - 1];
-          for(let s = 0; s < stops.length - 1; s++){
-            if(fp >= stops[s].pct && fp <= stops[s + 1].pct){ lower = stops[s]; upper = stops[s + 1]; break; }
+          for (let s = 0; s < stops.length - 1; s++) {
+            if (fp >= stops[s].pct && fp <= stops[s + 1].pct) {
+              lower = stops[s]; upper = stops[s + 1]; break;
+            }
           }
           const range = upper.pct - lower.pct || 1;
           const t = (fp - lower.pct) / range;
@@ -444,45 +627,105 @@ export default function Map(){
           const b = Math.round(lower.b + (upper.b - lower.b) * t);
           lineColor = `rgb(${r},${g},${b})`;
         }
-        const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPct)) / 10 : 0;
-        map.addLayer({ id:lineId, type:"line", source:lineId, paint:{
-          "line-color": lineColor,
-          "line-width":3 }
-        });
-
-        if(los.clear && fresnelPct < 60){
-          p1.fresnelWarn = true;
-          p1.fresnelDetail = `\u26A0\uFE0F Fresnel ${Math.max(0,fresnelPct).toFixed(0)}% clearance \u2192 ${p2.name} \u2014 increase height`;
-          p1.fresnelTarget = p2;
-        }
-
-        const clickP1=p1,clickP2=p2;
-        map.on("click", lineId, (e) => { e.preventDefault(); e.originalEvent.stopPropagation(); skipNextClick.current=true; generateProfile(clickP1, clickP2); });
-        map.on("mouseenter", lineId, () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", lineId, () => { map.getCanvas().style.cursor = ""; });
-        const labelId = `label-${i}-${j}`;
-        if (map.getSource(labelId)) { try { map.removeLayer(labelId); map.removeSource(labelId); } catch {} }
-        map.addSource(labelId,{ type:"geojson", data:{ type:"Feature",
-          geometry:{ type:"Point", coordinates:[(p1.lng+p2.lng)/2,(p1.lat+p2.lat)/2] },
-          properties:{ text: los.clear ? `${d.toFixed(2)} mi | ${(signal - fresnelLoss).toFixed(0)} dBm${fresnelLoss > 0 ? ` (F: -${fresnelLoss.toFixed(0)})` : ""}` : `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft` } } });
-        map.addLayer({ id:labelId, type:"symbol", source:labelId,
-          layout:{ "text-field":["get","text"], "text-size":13,
-            "text-variable-anchor":["top","bottom","left","right"],
-            "text-radial-offset":1.2, "text-justify":"auto", "text-allow-overlap":false },
-          paint:{ "text-color":"#00ffff", "text-halo-color":"#000000", "text-halo-width":2 }
-        });
+      } else {
+        // Blocked → dashed red
+        lineColor = "#ff3333";
+        lineDash = [4, 3];
       }
+
+      const fresnelLoss = (los.clear && fresnelPct < 60) ? (60 - Math.max(0, fresnelPct)) / 10 : 0;
+
+      const paint = { "line-color": lineColor, "line-width": 3 };
+      if (lineDash) paint["line-dasharray"] = lineDash;
+      map.addLayer({ id: lineId, type: "line", source: lineId, paint });
+
+      if (los.clear && fresnelPct < 60) {
+        p1.fresnelWarn = true;
+        p1.fresnelDetail = `⚠️ Fresnel ${Math.max(0,fresnelPct).toFixed(0)}% clearance → ${p2.name}`;
+        p1.fresnelTarget = p2;
+      }
+
+      // Click + hover
+      const clickP1 = p1, clickP2 = p2;
+      map.on("click", lineId, (e) => {
+        e.preventDefault();
+        e.originalEvent.stopPropagation();
+        skipNextClick.current = true;
+        generateProfile(clickP1, clickP2);
+      });
+      map.on("mouseenter", lineId, () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", lineId, () => { map.getCanvas().style.cursor = ""; });
+
+      // Label
+      const labelId = `label-${i}-${j}`;
+      let labelText;
+      if (!los.clear) {
+        labelText = `${d.toFixed(2)} mi | BLOCKED | +${Math.ceil(los.requiredHeight)} ft`;
+      } else if (flaggedByHeight) {
+        labelText = `${d.toFixed(2)} mi | FLAGGED | ${(signal - fresnelLoss).toFixed(0)} dBm`;
+      } else {
+        labelText = `${d.toFixed(2)} mi | ${(signal - fresnelLoss).toFixed(0)} dBm${fresnelLoss > 0 ? ` (F: -${fresnelLoss.toFixed(0)})` : ""}`;
+      }
+
+      map.addSource(labelId, {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [(p1.lng + p2.lng) / 2, (p1.lat + p2.lat) / 2] },
+          properties: { text: labelText }
+        }
+      });
+      map.addLayer({
+        id: labelId, type: "symbol", source: labelId,
+        layout: {
+          "text-field": ["get", "text"],
+          "text-size": 13,
+          "text-variable-anchor": ["top","bottom","left","right"],
+          "text-radial-offset": 1.2,
+          "text-justify": "auto",
+          "text-allow-overlap": false
+        },
+        paint: { "text-color": "#00ffff", "text-halo-color": "#000000", "text-halo-width": 2 }
+      });
     }
-    for (const n of nodesRef.current){
-      if (!n.markerElement) continue;
-      if (n.type === "single"){ n.markerElement.style.background = "black"; }
-      else if (n.outOfRange){ n.markerElement.style.background = "#666"; n.markerElement.style.border = "2px solid red"; }
-      else { n.markerElement.style.background = n.type==="gateway"?"blue":n.type==="lra"?"orange":"green"; n.markerElement.style.border = "none"; }
-    }
-    if(showHeatmapRef.current) updateHeatmapData();
-    analyzeNetwork();
-    setNodeVersion(v => v + 1);
   }
+
+  // Marker visual states
+  for (const n of nodesRef.current) {
+  if (!n.markerElement) continue;
+
+  // Base color by type
+  let baseColor =
+    n.type === "gateway" ? "blue" :
+    n.type === "lra"     ? "orange" :
+    n.type === "single"  ? "black" :
+                           "green";
+
+  // Reset border + shadow every redraw
+  n.markerElement.style.border = "none";
+  n.markerElement.style.boxShadow = "none";
+
+  if (n.type === "single") {
+    n.markerElement.style.background = "black";
+  } else if (n.outOfRange) {
+    // Disconnected — impossible
+    n.markerElement.style.background = "#666";
+    n.markerElement.style.border = "2px solid red";
+  } else if (n.flagged) {
+    // Flagged-but-allowed → device color + pink outline + glow
+    n.markerElement.style.background = baseColor;
+    n.markerElement.style.border = "2px solid #ff1493";
+    n.markerElement.style.boxShadow = "0 0 6px #ff1493";
+  } else {
+    // Normal connected node
+    n.markerElement.style.background = baseColor;
+  }
+}
+
+  if (showHeatmapRef.current) updateHeatmapData();
+  analyzeNetwork();
+  setNodeVersion(v => v + 1);
+}
 
   // TERRAIN PROFILE GENERATOR
   async function generateProfile(node, forceTarget){
@@ -731,6 +974,28 @@ export default function Map(){
     undoStack.current.push(JSON.stringify(snap)); redoStack.current = [];
     if(undoStack.current.length > 50) undoStack.current.shift();
   }
+  
+async function restoreModeSnapshot(mode) {
+  const snap = modeSnapshots.current[mode];
+  if (!snap || snap.length === 0) return false;
+
+  const map = mapRef.current;
+  // Remove existing markers
+  nodesRef.current.forEach(n => { if (n.marker) n.marker.remove(); });
+  nodesRef.current = [];
+
+  // Rebuild nodes from snapshot
+  for (const n of snap) {
+    addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+    const created = nodesRef.current[nodesRef.current.length - 1];
+    if (n.modbusId) created.modbusId = n.modbusId;
+    created.flagged    = !!n.flagged;
+    created.outOfRange = !!n.outOfRange;
+  }
+
+  redraw();
+  return true;
+}
   function undo(){
     if(undoStack.current.length===0) return;
     const cs=nodesRef.current.map(n=>({name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range}));
@@ -789,111 +1054,8 @@ export default function Map(){
     setProfileData({from:fakeFrom,to:fakeTo,points,totalDist,isMeasure:true});
     setProfileFromHeight(5);setProfileToHeight(5);setProfileFromType("sra");setProfileToType("sra");setShowProfile(true);
   }
-  async function optimizeHeights(){
-    for(const node of nodesRef.current){
-      if(node.type==="gateway"||node.type==="lra"){
-        const maxH=30; const minH=node.type==="gateway"?15:10; let neededHeight=minH;
-        for(const other of nodesRef.current){
-          if(other===node)continue; if(other.type==="single")continue;
-          const d=distance(node,other); const linkRange=(node.type==="lra"||node.type==="gateway")?3:0.75; if(d>linkRange)continue;
-          const link=linksRef.current[other.name]; const isConnected=(link===node)||(linksRef.current[node.name]===other); if(!isConnected)continue;
-          for(let testH=minH;testH<=maxH;testH+=5){const los=await checkLOS(node,other,testH,other.height);if(los.clear){if(testH>neededHeight)neededHeight=testH;break;}if(testH===maxH)neededHeight=maxH;}
-        }
-        node.height=neededHeight;
-      }
-    }
-  }
-  async function rescueDisconnected(){
-    for(let attempt=0;attempt<5;attempt++){
-      let disconnected=[];
-      for(const node of nodesRef.current){if(node.type==="gateway")continue;if(node.type==="single")continue;const path=getPath(node);if(!path.some(n=>n.type==="gateway"))disconnected.push(node);}
-      if(disconnected.length===0){for(const node of nodesRef.current){if(node.type!=="sra")continue;const link=linksRef.current[node.name];if(!link)continue;const los=await checkLOS(node,link,node.height,link.height);if(!los.clear)disconnected.push(node);}}
-      if(disconnected.length===0)return;
-      let rescued=false;
-      for(const disc of disconnected){
-        let bestBridge=null,bestBridgeH=999,bestDiscH=999;
-        for(const bridge of nodesRef.current){
-          if(bridge===disc)continue;if(bridge.type==="single")continue;if(bridge.type==="gateway")continue;
-          const dToDisc=distance(bridge,disc);if(dToDisc>3)continue;
-          let bridgeConnected=false;const bridgePath=getPath(bridge);if(bridgePath.some(n=>n.type==="gateway"))bridgeConnected=true;
-          if(!bridgeConnected){for(const g of nodesRef.current){if(g.type!=="gateway"&&g.type!=="lra")continue;const gPath=getPath(g);if(g.type!=="gateway"&&!gPath.some(n=>n.type==="gateway"))continue;if(distance(bridge,g)<=3){bridgeConnected=true;break;}}}
-          if(!bridgeConnected)continue;
-          for(let bh=10;bh<=30;bh+=5){for(let dh=5;dh<=30;dh+=5){const los=await checkLOS(bridge,disc,bh,dh);if(los.clear){if(bh+dh<bestBridgeH+bestDiscH){bestBridgeH=bh;bestDiscH=dh;bestBridge=bridge;}break;}}}
-        }
-        if(bestBridge){
-          if(bestBridge.type==="sra"){bestBridge.type="lra";bestBridge.range=3;if(bestBridge.markerElement)bestBridge.markerElement.style.background="orange";}
-          bestBridge.height=Math.max(bestBridge.height,bestBridgeH);
-          if(bestDiscH>5||distance(bestBridge,disc)>0.75){disc.type="lra";disc.range=3;disc.height=Math.max(disc.height,bestDiscH);if(disc.markerElement)disc.markerElement.style.background="orange";}
-          await computeLinks();rescued=true;break;
-        }
-      }
-      if(!rescued)break;
-    }
-  }
-
-  async function optimizeFresnel(){
-    let changed = false;
-    for(const a of nodesRef.current){
-      if(a.type === "gateway" || a.type === "single") continue;
-      const currentLink = linksRef.current[a.name];
-      if(!currentLink) continue;
-      const currentLOS = await checkLOS(a, currentLink, a.height, currentLink.height);
-      if(!currentLOS.clear) continue;
-      const currentFresnel = await calcFresnelPct(a, currentLink);
-      if(currentFresnel >= 60) continue;
-      let bestAlt = null;
-      let bestAltFresnel = currentFresnel;
-      let bestAltNeedsLRA = false;
-      let bestAltCanSRA = false;
-      for(const b of nodesRef.current){
-        if(b === a || b === currentLink) continue;
-        if(b.type === "single") continue;
-        const d = distance(a, b);
-        let reachable = false;
-        let needsLRA = false;
-        if(b.type === "gateway" && d <= 3) reachable = true;
-        else if(b.type === "lra" && d <= 3) reachable = true;
-        else if(d <= a.range) reachable = true;
-        else if(d <= 3 && a.type === "sra"){
-          needsLRA = true;
-          reachable = true;
-        }
-        if(!reachable) continue;
-        const isGateway = b.type === "gateway";
-        if(!isGateway){
-          const bPath = getPath(b);
-          if(!bPath.some(n => n.type === "gateway")) continue;
-        }
-        const los = await checkLOS(a, b, needsLRA ? 10 : a.height, b.height);
-        if(!los.clear) continue;
-        const tempA = {...a, height: needsLRA ? 10 : a.height};
-        const fpct = await calcFresnelPct(tempA, b);
-        if(fpct > bestAltFresnel){
-          bestAltFresnel = fpct;
-          bestAlt = b;
-          bestAltNeedsLRA = needsLRA;
-          bestAltCanSRA = (d <= 0.75 && a.type === "lra" && !needsLRA);
-        }
-      }
-      if(bestAlt && bestAltFresnel > currentFresnel){
-        linksRef.current[a.name] = bestAlt;
-        changed = true;
-        if(bestAltNeedsLRA && a.type === "sra"){
-          a.type = "lra";
-          a.height = 10;
-          a.range = 3;
-          if(a.markerElement) a.markerElement.style.background = "orange";
-        }
-        if(bestAltCanSRA && a.type === "lra" && !a._wasUpgraded){
-          a.type = "sra";
-          a.height = 5;
-          a.range = 0.75;
-          if(a.markerElement) a.markerElement.style.background = "green";
-        }
-      }
-    }
-    return changed;
-  }
+    
+  
   function redraw(){ setNodeVersion(v=>v+1); draw(); }
 
   // ========== FCC TOWER OVERLAY ==========
@@ -1140,6 +1302,537 @@ export default function Map(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = fileName + ".json"; a.click(); URL.revokeObjectURL(url);
   }
+  // =====================================================
+// INSTALL REPORT - PDF VERSION (Step C2)
+// Installer-ready PDF report.
+// Includes map snapshot, BOM, recommendations, routes.
+// =====================================================
+async function exportInstallReportPDF(){
+  if (!nodesRef.current.length) {
+    alert("Add some nodes first, then export the PDF report.");
+    return;
+  }
+
+  // Load jsPDF + autoTable plugin
+  const jsPDFModule = await import("jspdf");
+const jsPDF = jsPDFModule.jsPDF;
+const autoTableModule = await import("jspdf-autotable");
+const autoTable = autoTableModule.default;
+
+  const currentProject = projects.find(p => p.id === activeProjectId);
+  const projectName = currentProject?.name || "rf-network";
+  // ---------- Helper: strip emojis (jsPDF Helvetica doesn't support them) ----------
+// ---------- Helper: PDF-safe text (replace emojis with labels) ----------
+function stripEmojis(text) {
+  if (!text) return "";
+  let t = String(text);
+
+  // Replace meaningful emojis with text tags so messages stay readable
+  const replacements = [
+    { re: /⚠️|⚠/g,  with: "[WARN] " },
+    { re: /⛰️|⛰/g,  with: "[TERRAIN] " },
+    { re: /📡/g,    with: "[SIGNAL] " },
+    { re: /🔗/g,    with: "[LINK] " },
+    { re: /⬆️|⬆/g,  with: "[PROMOTE] " },
+    { re: /🟪/g,    with: "[FLAGGED] " },
+    { re: /⚫/g,    with: "[SINGLE] " },
+    { re: /✅/g,    with: "[OK] " },
+    { re: /🟢/g,    with: "[HEALTHY] " },
+    { re: /🔵/g,    with: "[GATEWAY] " },
+    { re: /🟠/g,    with: "[LRA] " },
+    { re: /🟢/g,    with: "[SRA] " },
+    { re: /🧠/g,    with: "" },
+    { re: /📄/g,    with: "" },
+    { re: /🧾/g,    with: "" },
+    { re: /📊/g,    with: "" },
+    { re: /📁/g,    with: "" },
+    { re: /💾/g,    with: "" },
+    { re: /📂/g,    with: "" },
+    { re: /📦/g,    with: "" },
+    { re: /📍/g,    with: "" },
+    { re: /📏/g,    with: "" },
+    { re: /🛰️|🛰/g, with: "[NETWORK] " },
+    { re: /🗺️|🗺/g, with: "" },
+  ];
+
+  for (const r of replacements) {
+    t = t.replace(r.re, r.with);
+  }
+
+  // Strip any remaining emojis (broad ranges)
+  t = t
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, "")
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, "")
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, "")
+    .replace(/[\u{1F700}-\u{1F77F}]/gu, "")
+    .replace(/[\u{1F780}-\u{1F7FF}]/gu, "")
+    .replace(/[\u{1F800}-\u{1F8FF}]/gu, "")
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, "")
+    .replace(/[\u{1FA00}-\u{1FA6F}]/gu, "")
+    .replace(/[\u{1FA70}-\u{1FAFF}]/gu, "")
+    .replace(/[\u{2600}-\u{26FF}]/gu, "")
+    .replace(/[\u{2700}-\u{27BF}]/gu, "")
+    .replace(/[\u{2300}-\u{23FF}]/gu, "")
+    .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "")
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, "")
+    .replace(/[\u{200D}]/gu, "")
+    // Replace non-Latin special arrows with a safe arrow
+    .replace(/→/g, "->");
+
+  return t.replace(/\s+/g, " ").trim();
+}
+
+  // ---------- Helpers (matched to Excel report) ----------
+  function poleHeightFor(n) {
+    if (n.type === "single") return 0;
+    if (n.type === "gateway") return Math.max(15, n.height);
+    if (n.type === "lra")     return Math.max(10, n.height);
+    if (n.type === "sra")     return Math.max(5,  n.height);
+    return n.height || 0;
+  }
+  function poleSticksFor(n) {
+    if (n.type !== "gateway" && n.type !== "lra") return 0;
+    const h = poleHeightFor(n);
+    if (h <= 0) return 0;
+    return Math.ceil(h / 10);
+  }
+  function poleMaterialFor(n) {
+    if (n.type === "gateway") return '3/4" Rigid Conduit';
+    if (n.type === "lra")     return '1.25" EMT';
+    return "";
+  }
+  function statusFor(n) {
+    if (n.type === "single") return "Single Modem";
+    if (n.outOfRange) return "DISCONNECTED";
+    if (n.flagged)    return "FLAGGED";
+    if (n.blocked)    return "BLOCKED";
+    return "OK";
+  }
+
+  // ---------- Counts ----------
+  const gateways = nodesRef.current.filter(n => n.type === "gateway").length;
+  const lras     = nodesRef.current.filter(n => n.type === "lra").length;
+  const sras     = nodesRef.current.filter(n => n.type === "sra").length;
+  const singles  = nodesRef.current.filter(n => n.type === "single").length;
+  const flagged  = nodesRef.current.filter(n => n.flagged && n.type !== "single").length;
+  const disco    = nodesRef.current.filter(n => n.outOfRange && n.type !== "single").length;
+
+  let healthText = "Healthy";
+  if (disco > 0)        healthText = "Has Disconnects";
+  else if (flagged > 0) healthText = "Has Flagged Routes";
+
+  // ---------- Create PDF ----------
+  const pdf = new jsPDF("p", "pt", "letter");
+  const pageWidth  = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+
+  // ---- Header band ----
+  pdf.setFillColor(13, 13, 26);
+  pdf.rect(0, 0, pageWidth, 60, "F");
+  pdf.setTextColor(0, 188, 212);
+  pdf.setFontSize(20);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("RF Planner — Install Report", 40, 38);
+
+  pdf.setTextColor(180, 180, 180);
+  pdf.setFontSize(10);
+  pdf.setFont("helvetica", "normal");
+  pdf.text(`Project: ${projectName}`, pageWidth - 40, 25, { align: "right" });
+  pdf.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 40, 40, { align: "right" });
+
+  // ---- Summary ----
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFontSize(14);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Project Summary", 40, 90);
+
+  autoTable(pdf, {
+    startY: 100,
+    head: [["Item", "Value"]],
+    body: [
+      ["Project Name", projectName],
+      ["Date Generated", new Date().toLocaleString()],
+      ["Total Nodes", String(nodesRef.current.length)],
+      ["Gateways", String(gateways)],
+      ["LRAs", String(lras)],
+      ["SRAs", String(sras)],
+      ["Single Modems", String(singles)],
+      ["Flagged Nodes", String(flagged)],
+      ["Disconnected Nodes", String(disco)],
+      ["Network Health", healthText]
+    ],
+    theme: "striped",
+    headStyles: { fillColor: [13, 13, 26], textColor: [0, 188, 212] },
+    margin: { left: 40, right: 40 }
+  });
+
+  // ---- Map snapshot ----
+  try {
+    const screenshotCanvas = await html2canvas(containerRef.current, {
+      useCORS: true, allowTaint: true, backgroundColor: null
+    });
+    const imgData = screenshotCanvas.toDataURL("image/png");
+    const imgWidth  = pageWidth - 80;
+    const imgHeight = (screenshotCanvas.height / screenshotCanvas.width) * imgWidth;
+
+    let y = pdf.lastAutoTable.finalY + 25;
+    if (y + imgHeight > pageHeight - 50) { pdf.addPage(); y = 40; }
+
+    pdf.setFontSize(14);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Network Map", 40, y);
+    pdf.addImage(imgData, "PNG", 40, y + 8, imgWidth, imgHeight);
+  } catch (err) {
+    console.log("Map snapshot failed:", err);
+  }
+
+  // ---- Site Install Sheet ----
+  pdf.addPage();
+  pdf.setFontSize(14);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Site Install Sheet", 40, 40);
+
+  const siteBody = [];
+  for (const n of nodesRef.current) {
+    const target = linksRef.current[n.name] || null;
+    const dist = target ? distance(n, target).toFixed(2) : "";
+    siteBody.push([
+      n.name,
+      n.type.toUpperCase(),
+      String(n.height),
+      String(poleHeightFor(n)),
+      String(poleSticksFor(n)),
+      poleMaterialFor(n),
+      target ? target.name : "—",
+      dist,
+      statusFor(n)
+    ]);
+  }
+
+ autoTable(pdf, {
+  startY: 55,
+  head: [["Site", "Type", "Ant ft", "Pole ft", "Sticks", "Material", "To", "Dist mi", "Status"]],
+  body: siteBody,
+  theme: "striped",
+  headStyles: { fillColor: [13, 13, 26], textColor: [0, 188, 212] },
+  styles: {
+    fontSize: 7,
+    cellPadding: 3,
+    overflow: "linebreak"
+  },
+  columnStyles: {
+    0: { cellWidth: 110 },  // Site name — wider
+    6: { cellWidth: 90 }    // "Connected To"
+  },
+  margin: { left: 30, right: 30 }
+});
+
+  // ---- BOM ----
+  let gwSticks = 0, lraSticks = 0;
+  for (const n of nodesRef.current) {
+    if (n.type === "gateway") gwSticks  += poleSticksFor(n);
+    if (n.type === "lra")     lraSticks += poleSticksFor(n);
+  }
+
+  pdf.addPage();
+  pdf.setFontSize(14);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Bill of Materials", 40, 40);
+
+  autoTable(pdf, {
+    startY: 55,
+    head: [["Item", "Qty", "Notes"]],
+    body: [
+      ["Gateways",                                String(gateways),  ""],
+      ["LRA Radios",                              String(lras),      ""],
+      ["SRA Radios",                              String(sras),      "Enclosure mounted"],
+      ["Single Modems",                           String(singles),   "Modem only"],
+      ['3/4" Rigid Conduit – 10ft sticks (GW)',   String(gwSticks),       "Rounded UP"],
+      ['3/4" Rigid Conduit – Total Feet',         String(gwSticks * 10),  ""],
+      ['1.25" EMT – 10ft sticks (LRA)',           String(lraSticks),      "Rounded UP"],
+      ['1.25" EMT – Total Feet',                  String(lraSticks * 10), ""],
+      ["TOTAL Pole Sticks",                       String(gwSticks + lraSticks),      "Combined"],
+      ["TOTAL Pole Feet",                         String((gwSticks + lraSticks)*10), ""]
+    ],
+    theme: "striped",
+    headStyles: { fillColor: [13, 13, 26], textColor: [0, 188, 212] },
+    margin: { left: 40, right: 40 }
+  });
+
+  // ---- Recommendations ----
+  pdf.addPage();
+  pdf.setFontSize(14);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Recommendations", 40, 40);
+
+  // Build cleaned rows safely
+const recBody = [];
+if (Array.isArray(recommendations) && recommendations.length > 0) {
+  for (const r of recommendations) {
+    const cleaned = stripEmojis(r?.text || "");
+    if (cleaned && cleaned.length > 0) {
+      recBody.push([cleaned]);
+    } else if (r?.text) {
+      recBody.push([String(r.text).replace(/[^\x20-\x7E]/g, "")]);
+    }
+  }
+}
+if (recBody.length === 0) {
+  recBody.push(["All nodes connected — no action needed"]);
+}
+
+console.log("PDF Recommendations rows:", recBody);
+
+autoTable(pdf, {
+  startY: 55,
+  head: [["Recommendation"]],
+  body: recBody,
+  theme: "grid",
+  headStyles: {
+    fillColor: [13, 13, 26],
+    textColor: [0, 188, 212],
+    fontStyle: "bold"
+  },
+  bodyStyles: {
+    textColor: [20, 20, 20],
+    fontSize: 9,
+    cellPadding: 5,
+    overflow: "linebreak",
+    valign: "top"
+  },
+  alternateRowStyles: { fillColor: [245, 245, 245] },
+  margin: { left: 40, right: 40 },
+  tableWidth: "auto"
+});
+
+  // ---- Routes ----
+  pdf.addPage();
+  pdf.setFontSize(14);
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Route Details", 40, 40);
+
+  const routeBody = [];
+  for (const n of nodesRef.current) {
+    if (n.type === "gateway" || n.type === "single") continue;
+    const target = linksRef.current[n.name];
+    if (!target) {
+      routeBody.push([n.name, "NONE", "", "", "NO CONNECTION"]);
+      continue;
+    }
+    const d = distance(n, target);
+    const signal = calcPower(d);
+    let los = "CLEAR";
+    if (n.outOfRange) los = "DISCONNECTED";
+    else if (n.flagged) los = "FLAGGED";
+    else if (n.blocked) los = "BLOCKED";
+    routeBody.push([n.name, target.name, d.toFixed(2), signal.toFixed(0), los]);
+  }
+
+  autoTable(pdf, {
+    startY: 55,
+    head: [["From", "To", "Distance mi", "Signal dBm", "LOS"]],
+    body: routeBody,
+    theme: "striped",
+    headStyles: { fillColor: [13, 13, 26], textColor: [0, 188, 212] },
+    margin: { left: 40, right: 40 }
+  });
+
+  // ---- Footer on each page ----
+  const totalPages = pdf.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(8);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text(`RF Planner Install Report — ${projectName}`, 40, pageHeight - 20);
+    pdf.text(`Page ${i} of ${totalPages}`, pageWidth - 40, pageHeight - 20, { align: "right" });
+  }
+
+  pdf.save(`${projectName}-install-report.pdf`);
+}
+  // =====================================================
+// INSTALL REPORT (Step C1)
+// Full installer-ready Excel report aligned with new optimizer.
+// Does NOT replace exportExcel() or exportBundle().
+// =====================================================
+async function exportInstallReport(){
+  if (!nodesRef.current.length) {
+    alert("Add some nodes first, then export the install report.");
+    return;
+  }
+
+  const currentProject = projects.find(p => p.id === activeProjectId);
+  const projectName = currentProject?.name || "rf-network";
+
+  // ---------- Helper: pole height recommendation ----------
+function poleHeightFor(n) {
+  if (n.type === "single") return 0;
+  if (n.type === "gateway") return Math.max(15, n.height);
+  if (n.type === "lra")     return Math.max(10, n.height);
+  if (n.type === "sra")     return Math.max(5,  n.height);
+  return n.height || 0;
+}
+
+// ---------- Helper: pole sticks (10 ft each, round UP) ----------
+// All poles are physically purchased in 10 ft sticks.
+function poleSticksFor(n) {
+  // Only Gateway and LRA use poles
+  if (n.type !== "gateway" && n.type !== "lra") return 0;
+  const h = poleHeightFor(n);
+  if (h <= 0) return 0;
+  return Math.ceil(h / 10);
+}
+
+// ---------- Helper: pole material ----------
+function poleMaterialFor(n) {
+  if (n.type === "gateway") return '3/4" Rigid Conduit';
+  if (n.type === "lra")     return '1.25" EMT';
+  return ""; // SRA = enclosure mount, Single = modem only
+}
+
+// ---------- Helper: antenna recommendation ----------
+function antennaFor(n) {
+  if (n.type === "single") return "Modem only";
+  if (n.type === "gateway") return "Omni (Gateway)";
+  if (n.type === "lra")     return "Omni (LRA)";
+  if (n.type === "sra")     return "Omni (SRA, enclosure mount)";
+  return "Omni";
+}
+
+// ---------- Helper: status string ----------
+function statusFor(n) {
+  if (n.type === "single") return "Single Modem";
+  if (n.outOfRange) return "DISCONNECTED";
+  if (n.flagged)    return "FLAGGED (above max)";
+  if (n.blocked)    return "BLOCKED LOS";
+  return "OK";
+}
+
+// ---------- Tab 1: Project Summary ----------
+const gateways = nodesRef.current.filter(n => n.type === "gateway").length;
+const lras     = nodesRef.current.filter(n => n.type === "lra").length;
+const sras     = nodesRef.current.filter(n => n.type === "sra").length;
+const singles  = nodesRef.current.filter(n => n.type === "single").length;
+const flagged  = nodesRef.current.filter(n => n.flagged && n.type !== "single").length;
+const disco    = nodesRef.current.filter(n => n.outOfRange && n.type !== "single").length;
+
+let healthText = "🟢 Healthy";
+if (disco > 0)        healthText = "⚠️ Has Disconnects";
+else if (flagged > 0) healthText = "🟪 Has Flagged Routes";
+
+const summaryRows = [
+  { Item: "Project Name",       Value: projectName },
+  { Item: "Date Generated",     Value: new Date().toLocaleString() },
+  { Item: "Total Nodes",        Value: nodesRef.current.length },
+  { Item: "Gateways",           Value: gateways },
+  { Item: "LRAs",               Value: lras },
+  { Item: "SRAs",               Value: sras },
+  { Item: "Single Modems",      Value: singles },
+  { Item: "Flagged Nodes",      Value: flagged },
+  { Item: "Disconnected Nodes", Value: disco },
+  { Item: "Network Health",     Value: healthText }
+];
+
+// ---------- Tab 2: Site-by-Site Install Sheet ----------
+const siteRows = [];
+for (const n of nodesRef.current) {
+  const target = linksRef.current[n.name] || null;
+  let dist = "";
+  let los = "";
+  if (target) {
+    dist = Number(distance(n, target).toFixed(2));
+    const losCheck = await checkLOS(n, target, n.height, target.height);
+    if (n.outOfRange) los = "DISCONNECTED";
+    else if (n.flagged) los = "FLAGGED (1.5× rule)";
+    else if (!losCheck.clear) los = "BLOCKED";
+    else los = "CLEAR";
+  }
+
+  siteRows.push({
+    "Site Name":               n.name,
+    "Type":                    n.type.toUpperCase(),
+    "Latitude":                n.lat,
+    "Longitude":               n.lng,
+    "Antenna Height ft":       n.height,
+    "Pole Height ft":          poleHeightFor(n),
+    "Pole Sticks (10ft each)": poleSticksFor(n),
+    "Pole Material":           poleMaterialFor(n),
+        "Connected To":            target ? target.name : "—",
+    "Distance mi":             dist,
+    "LOS":                     los,
+    "Modbus ID":               n.modbusId || "",
+    "Status":                  statusFor(n)
+  });
+}
+
+// ---------- Tab 3: BOM (per-material pole breakdown) ----------
+let gwSticks  = 0;
+let lraSticks = 0;
+for (const n of nodesRef.current) {
+  if (n.type === "gateway") gwSticks  += poleSticksFor(n);
+  if (n.type === "lra")     lraSticks += poleSticksFor(n);
+}
+
+const bomRows = [
+  { Item: "Gateways",        Qty: gateways,             Notes: "" },
+  { Item: "LRA Radios",      Qty: lras,                 Notes: "" },
+  { Item: "SRA Radios",      Qty: sras,                 Notes: "Enclosure mounted, no pole" },
+  { Item: "Single Modems",   Qty: singles,              Notes: "Modem only, no pole" },
+ 
+  // Pole materials
+  { Item: '3/4" Rigid Conduit – 10ft sticks (Gateway)', Qty: gwSticks,        Notes: "Rounded UP to next stick" },
+  { Item: '3/4" Rigid Conduit – Total Feet',            Qty: gwSticks * 10,   Notes: "" },
+  { Item: '1.25" EMT – 10ft sticks (LRA)',              Qty: lraSticks,       Notes: "Rounded UP to next stick" },
+  { Item: '1.25" EMT – Total Feet',                     Qty: lraSticks * 10,  Notes: "" },
+
+  { Item: "TOTAL Pole Sticks",  Qty: gwSticks + lraSticks,           Notes: "All materials combined" },
+  { Item: "TOTAL Pole Feet",    Qty: (gwSticks + lraSticks) * 10,    Notes: "Raw material in feet" }
+];
+
+  // ---------- Tab 4: Recommendations ----------
+  const recRows = recommendations.map(r => ({ Recommendation: r.text }));
+
+  // ---------- Tab 5: Route Details ----------
+  const routeRows = [];
+  for (const n of nodesRef.current) {
+    if (n.type === "gateway" || n.type === "single") continue;
+    const target = linksRef.current[n.name];
+    if (!target) {
+      routeRows.push({
+        "From":         n.name,
+        "To":           "NONE",
+        "Distance mi":  "",
+        "Signal dBm":   "",
+        "LOS":          "NO CONNECTION"
+      });
+      continue;
+    }
+    const d = distance(n, target);
+    const signal = calcPower(d);
+    const losCheck = await checkLOS(n, target, n.height, target.height);
+    let los = "CLEAR";
+    if (n.outOfRange) los = "DISCONNECTED";
+    else if (n.flagged) los = "FLAGGED";
+    else if (!losCheck.clear) los = "BLOCKED";
+
+    routeRows.push({
+      "From":          n.name,
+      "To":            target.name,
+      "Distance mi":   Number(d.toFixed(2)),
+      "Signal dBm":    Number(signal.toFixed(0)),
+      "LOS":           los
+    });
+  }
+
+  // ---------- Build workbook ----------
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(siteRows),     "Site Install");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bomRows),      "BOM");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recRows),      "Recommendations");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(routeRows),    "Routes");
+
+  XLSX.writeFile(wb, `${projectName}-install-report.xlsx`);
+}
   function exportExcel(){
     const nodeRows = nodesRef.current.map(n => ({
       "Name":n.name,"Type":n.type.toUpperCase(),"Latitude":n.lat,"Longitude":n.lng,
@@ -1206,94 +1899,218 @@ export default function Map(){
     };
     reader.readAsText(file);
   }
-  async function analyzeNetwork(){
-    const recs=[];
-    const seenRecs = new Set();
-    for(const a of nodesRef.current){
-      if(a.type==="gateway")continue;if(a.type==="single")continue;
-      const path=getPath(a);if(!path.some(n=>n.type==="gateway"))continue;
-      for(let p=0;p<path.length-1;p++){const p1=path[p],p2=path[p+1];
-        const recKey = [p1.name, p2.name].sort().join("\u2192");
-        if(p1.blocked && !seenRecs.has("block-"+recKey)){seenRecs.add("block-"+recKey);recs.push({text:`\u26F0\uFE0F ${p1.name.toUpperCase()} \u2192 ${p2.name.toUpperCase()}: Blocked LOS \u2014 adjust height`,node:p1,target:p2});}
-        else if(p1.fresnelWarn && p1.fresnelTarget){const fKey=[p1.name,p1.fresnelTarget.name].sort().join("\u2192");if(!seenRecs.has("fresnel-"+fKey)){seenRecs.add("fresnel-"+fKey);recs.push({text:`\u26A0\uFE0F ${p1.name.toUpperCase()} \u2192 ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${p1.fresnelDetail.match(/\d+/)?.[0] || '?'}% \u2014 increase height for reliable link`,node:p1,target:p1.fresnelTarget});}}}
-    }
-    for(const a of nodesRef.current){
-      if(a.type==="gateway")continue;if(a.type==="single")continue;
-      const path=getPath(a);if(path.some(n=>n.type==="gateway"))continue;
+  // =====================================================
+// NETWORK ANALYSIS (v2 — aligned with new optimizer rules)
+//
+// New rule-aware recommendations:
+// - Pad logic awareness
+// - 100 ft north gateway logic
+// - New max heights:  G=25, LRA=20, SRA=5
+// - 1.5x flagged-but-allowed rule
+// - Promotion suggestion (SRA → LRA)
+// - Single Modem recommendation
+// - Clear, action-oriented messages
+// =====================================================
+async function analyzeNetwork(){
+  const recs = [];
+  const seen = new Set();
 
-      // Find nearest gateway and nearest connected LRA
-      let nearestGW=null, nearestGWDist=Infinity;
-      let nearestLRA=null, nearestLRADist=Infinity;
-      for(const b of nodesRef.current){
-        if(b===a) continue;
-        const d=distance(a,b);
-        if(b.type==="gateway" && d<nearestGWDist){ nearestGW=b; nearestGWDist=d; }
-        if(b.type==="lra" && d<nearestLRADist){
-          const bPath=getPath(b);
-          if(bPath.some(n=>n.type==="gateway")){ nearestLRA=b; nearestLRADist=d; }
-        }
-      }
+  // Rule constants (kept in sync with rf/constants.js)
+  const MAX_G   = 25;
+  const MAX_LRA = 20;
+  const MAX_SRA = 5;
+  const FLAG_G   = MAX_G   * 1.5;
+  const FLAG_LRA = MAX_LRA * 1.5;
 
-      const nearestTarget = (nearestGWDist <= nearestLRADist) ? nearestGW : nearestLRA;
-      const nearestDist = (nearestGWDist <= nearestLRADist) ? nearestGWDist : nearestLRADist;
-      const nearestLabel = nearestTarget ? nearestTarget.name.toUpperCase() : "any gateway/LRA";
-      const maxReach = (a.type==="lra") ? 3 : 0.75;
-
-      // CASE 1: Nothing within max possible range (3mi for LRA reach)
-      if(!nearestTarget || nearestDist > 3){
-        recs.push({text:`📡 ${a.name.toUpperCase()}: Out of range — nearest gateway/LRA is ${nearestDist===Infinity?"unknown":nearestDist.toFixed(2)+" mi"} away (max 3 mi)`,node:a});
-        continue;
-      }
-
-      // CASE 2: Within 3mi but beyond current type range — needs upgrade
-      if(nearestDist > maxReach && a.type==="sra"){
-        const los = await checkLOS(a, nearestTarget, 10, nearestTarget.height);
-        if(!los.clear){
-          const neededH = Math.ceil(los.requiredHeight + a.height);
-          if(neededH > 30){
-            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} (${nearestDist.toFixed(2)} mi) — needs ${neededH}ft but max LRA height is 30ft`,node:a,target:nearestTarget});
-          } else {
-            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Upgrade to LRA + set height to ~${neededH}ft to clear terrain to ${nearestLabel} (${nearestDist.toFixed(2)} mi)`,node:a,target:nearestTarget});
-          }
-        } else {
-          recs.push({text:`⬆️ ${a.name.toUpperCase()}: Out of SRA range (0.75 mi) — upgrade to LRA to reach ${nearestLabel} (${nearestDist.toFixed(2)} mi)`,node:a,target:nearestTarget});
-        }
-        continue;
-      }
-
-      // CASE 3: Within range — check LOS
-      const los = await checkLOS(a, nearestTarget, a.height, nearestTarget.height);
-      if(!los.clear){
-        const neededH = Math.ceil(los.requiredHeight + a.height);
-        const maxH = a.type==="sra" ? 5 : a.type==="lra" ? 30 : 30;
-        if(neededH > maxH){
-          if(a.type==="sra"){
-            // Check if LRA height could fix it
-            const losLRA = await checkLOS(a, nearestTarget, 30, nearestTarget.height);
-            if(losLRA.clear){
-              recs.push({text:`⬆️ ${a.name.toUpperCase()}: Terrain blocks LOS at SRA max 5ft — upgrade to LRA (~${Math.ceil(los.requiredHeight+5)}ft) to clear to ${nearestLabel}`,node:a,target:nearestTarget});
-            } else {
-              recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — needs ${neededH}ft, exceeds max LRA height (30ft)`,node:a,target:nearestTarget});
-            }
-          } else {
-            recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — needs ${neededH}ft but max ${a.type.toUpperCase()} height is ${maxH}ft`,node:a,target:nearestTarget});
-          }
-        } else {
-          recs.push({text:`⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${nearestLabel} — increase height to ~${neededH}ft to clear`,node:a,target:nearestTarget});
-        }
-        continue;
-      }
-
-      // CASE 4: LOS clear but still disconnected (mesh routing issue)
-      const signal = calcPower(nearestDist);
-      if(signal < -95){
-        recs.push({text:`📡 ${a.name.toUpperCase()}: Weak signal to ${nearestLabel} (${signal.toFixed(0)} dBm at ${nearestDist.toFixed(2)} mi) — consider adding relay node`,node:a,target:nearestTarget});
-      } else {
-        recs.push({text:`🔗 ${a.name.toUpperCase()}: LOS clear to ${nearestLabel} but no mesh path to gateway — check intermediate node connections`,node:a,target:nearestTarget});
-      }
-    }
-    if(recs.length===0){setRecommendations([{text:`\u2705 All nodes connected \u2014 no action needed`}]);}else{setRecommendations(recs);}
+  // Helper to push only unique recs
+  function pushRec(key, text, node = null, target = null) {
+    if (seen.has(key)) return;
+    seen.add(key);
+    recs.push({ text, node, target });
   }
+
+  // --------------------------------------
+  // PASS 1: review existing connected links
+  // --------------------------------------
+  for (const a of nodesRef.current){
+    if (a.type === "gateway" || a.type === "single") continue;
+    const path = getPath(a);
+    if (!path.some(n => n.type === "gateway")) continue;
+
+    for (let p = 0; p < path.length - 1; p++){
+      const p1 = path[p], p2 = path[p + 1];
+      const key = [p1.name, p2.name].sort().join("→");
+
+      // Blocked LOS
+      if (p1.blocked) {
+        pushRec(
+          `block-${key}`,
+          `⛰️ ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Blocked LOS — adjust height`,
+          p1, p2
+        );
+      }
+      // Fresnel warning
+      else if (p1.fresnelWarn && p1.fresnelTarget) {
+        const pct = p1.fresnelDetail?.match(/\d+/)?.[0] || "?";
+        pushRec(
+          `fresnel-${[p1.name, p1.fresnelTarget.name].sort().join("→")}`,
+          `⚠️ ${p1.name.toUpperCase()} → ${p1.fresnelTarget.name.toUpperCase()}: Fresnel ${pct}% — increase height for reliable link`,
+          p1, p1.fresnelTarget
+        );
+      }
+
+      // Flagged-but-allowed (above max but within 1.5x)
+      if (
+        (p1.type === "gateway" && p1.height > MAX_G && p1.height <= FLAG_G) ||
+        (p1.type === "lra"     && p1.height > MAX_LRA && p1.height <= FLAG_LRA) ||
+        (p2.type === "gateway" && p2.height > MAX_G && p2.height <= FLAG_G) ||
+        (p2.type === "lra"     && p2.height > MAX_LRA && p2.height <= FLAG_LRA)
+      ) {
+        pushRec(
+          `flag-${key}`,
+          `🟪 ${p1.name.toUpperCase()} → ${p2.name.toUpperCase()}: Connected using FLAGGED height (above normal max, within 1.5×)`,
+          p1, p2
+        );
+      }
+    }
+  }
+
+  // --------------------------------------
+  // PASS 2: review DISCONNECTED nodes
+  // --------------------------------------
+  for (const a of nodesRef.current){
+    if (a.type === "gateway" || a.type === "single") continue;
+    const path = getPath(a);
+    if (path.some(n => n.type === "gateway")) continue;
+
+    // Find nearest gateway + nearest connected LRA
+    let nearestGW = null, nearestGWDist = Infinity;
+    let nearestLRA = null, nearestLRADist = Infinity;
+
+    for (const b of nodesRef.current){
+      if (b === a) continue;
+      const d = distance(a, b);
+
+      if (b.type === "gateway" && d < nearestGWDist) {
+        nearestGW = b; nearestGWDist = d;
+      }
+      if (b.type === "lra" && d < nearestLRADist) {
+        const bPath = getPath(b);
+        if (bPath.some(n => n.type === "gateway")) {
+          nearestLRA = b; nearestLRADist = d;
+        }
+      }
+    }
+
+    const useGW =
+      nearestGW &&
+      (!nearestLRA || nearestGWDist <= nearestLRADist);
+
+    const target = useGW ? nearestGW : nearestLRA;
+    const targetDist = useGW ? nearestGWDist : nearestLRADist;
+    const targetLabel = target ? target.name.toUpperCase() : "any gateway/LRA";
+
+    // CASE 1: nothing within possible mesh range (3 mi)
+    if (!target || targetDist > 3) {
+      pushRec(
+        `gone-${a.name}`,
+        `📡 ${a.name.toUpperCase()}: Out of range — nearest mesh anchor is ${
+          targetDist === Infinity ? "unknown" : targetDist.toFixed(2) + " mi"
+        } away (max 3 mi) → recommend ⚫ Single Modem`,
+        a
+      );
+      continue;
+    }
+
+    // CASE 2: within 3 mi but beyond SRA range → suggest promotion
+    if (a.type === "sra" && targetDist > 0.75) {
+      const los = await checkLOS(a, target, 10, target.height);
+      if (!los.clear) {
+        const needed = Math.ceil(los.requiredHeight + a.height);
+        if (needed > FLAG_LRA) {
+          pushRec(
+            `lostall-${a.name}`,
+            `⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${targetLabel} (${targetDist.toFixed(2)} mi) — needs ${needed}ft but max flagged LRA height is ${FLAG_LRA}ft → ⚫ Single Modem`,
+            a, target
+          );
+        } else if (needed > MAX_LRA) {
+          pushRec(
+            `flag-rescue-${a.name}`,
+            `🟪 ${a.name.toUpperCase()}: Promote to LRA at FLAGGED height ~${needed}ft to reach ${targetLabel}`,
+            a, target
+          );
+        } else {
+          pushRec(
+            `promote-${a.name}`,
+            `⬆️ ${a.name.toUpperCase()}: Promote to LRA (~${needed}ft) to reach ${targetLabel} (${targetDist.toFixed(2)} mi)`,
+            a, target
+          );
+        }
+      } else {
+        pushRec(
+          `extend-${a.name}`,
+          `⬆️ ${a.name.toUpperCase()}: Out of SRA range (0.75 mi) — promote to LRA to reach ${targetLabel} (${targetDist.toFixed(2)} mi)`,
+          a, target
+        );
+      }
+      continue;
+    }
+
+    // CASE 3: within range — check LOS at current height
+    const los = await checkLOS(a, target, a.height, target.height);
+    if (!los.clear) {
+      const needed = Math.ceil(los.requiredHeight + a.height);
+      const maxH = a.type === "sra" ? MAX_SRA : a.type === "lra" ? MAX_LRA : MAX_G;
+      const flagH = a.type === "lra" ? FLAG_LRA : a.type === "gateway" ? FLAG_G : MAX_SRA;
+
+      if (needed > flagH) {
+        pushRec(
+          `losdead-${a.name}`,
+          `⛰️ ${a.name.toUpperCase()}: Terrain blocks LOS to ${targetLabel} — needs ${needed}ft, exceeds max FLAGGED ${a.type.toUpperCase()} height (${flagH}ft) → ⚫ Single Modem`,
+          a, target
+        );
+      } else if (needed > maxH) {
+        pushRec(
+          `losflag-${a.name}`,
+          `🟪 ${a.name.toUpperCase()}: Raise ${a.type.toUpperCase()} to FLAGGED ~${needed}ft to clear LOS to ${targetLabel}`,
+          a, target
+        );
+      } else {
+        pushRec(
+          `losfix-${a.name}`,
+          `⛰️ ${a.name.toUpperCase()}: Increase height to ~${needed}ft to clear LOS to ${targetLabel}`,
+          a, target
+        );
+      }
+      continue;
+    }
+
+    // CASE 4: LOS clear but mesh routing didn't pick it
+    const signal = calcPower(targetDist);
+    if (signal < -95) {
+      pushRec(
+        `weak-${a.name}`,
+        `📡 ${a.name.toUpperCase()}: Weak signal to ${targetLabel} (${signal.toFixed(0)} dBm at ${targetDist.toFixed(2)} mi) — consider adding relay node`,
+        a, target
+      );
+    } else {
+      pushRec(
+        `mesh-${a.name}`,
+        `🔗 ${a.name.toUpperCase()}: LOS clear to ${targetLabel} but no mesh path to gateway — check intermediate node connections`,
+        a, target
+      );
+    }
+  }
+
+  // --------------------------------------
+  // FINAL OUTPUT
+  // --------------------------------------
+  if (recs.length === 0) {
+    setRecommendations([{ text: "✅ All nodes connected — no action needed" }]);
+  } else {
+    setRecommendations(recs);
+  }
+}
   function importText(){
     if(!inputCoords.trim())return;
     const lines=inputCoords.trim().split("\n");
@@ -1302,6 +2119,38 @@ export default function Map(){
     if(!isNaN(lat)&&!isNaN(lng)){mapRef.current.flyTo({center:[lng,lat],zoom:13});}
     setInputCoords("");
   }
+  // =====================================================
+// KMZ UPLOAD (Phase 1)
+// Parses a KMZ file → loads placemarks → opens optimize prompt
+// =====================================================
+async function uploadKmz(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+
+  try {
+    const placemarks = await readKmzToPlacemarks(file);
+
+    if (!placemarks.length) {
+      alert("No point placemarks found in this KMZ.");
+      return;
+    }
+
+    // Convert KMZ placemarks into the same row shape Excel uses,
+    // so the existing Auto-Optimize prompt can handle them seamlessly.
+    const rows = placemarks.map(p => ({
+      Name: p.name,
+      Latitude: p.lat,
+      Longitude: p.lng
+    }));
+
+    setImportedData(rows);
+    setShowOptimizePrompt(true);
+  } catch (err) {
+    console.error("KMZ import error:", err);
+    alert("Failed to import KMZ.\n\n" + (err?.message || "Unknown error"));
+  }
+}
   function uploadExcel(e){
     const file = e.target.files[0];
     if(!file) return;
@@ -1310,116 +2159,39 @@ export default function Map(){
     reader.onload=(evt)=>{const wb=XLSX.read(new Uint8Array(evt.target.result));const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);setImportedData(rows);setShowOptimizePrompt(true);};
     reader.readAsArrayBuffer(file);
   }
-
-  async function optimizeExisting(){
-    if(!nodesRef.current.length)return; const map=mapRef.current; const recs=[];
-    try{
-      let hasGateway=nodesRef.current.some(n=>n.type==="gateway");
-      if(!hasGateway){
-        let bestNode=nodesRef.current[0],bestCount=-1;
-        for(const n of nodesRef.current){let count=0;for(const other of nodesRef.current){if(other===n)continue;if(distance(n,other)<=3)count++;}if(count>bestCount){bestCount=count;bestNode=n;}}
-        addNode(map,bestNode.lng,bestNode.lat+(60/364000),"gateway","GATEWAY-1",true);
-        recs.push({text:`\uD83D\uDCE1 GATEWAY-1 placed 60ft north of ${bestNode.name.toUpperCase()}`});
-      }
-      for(const node of nodesRef.current){if(node.type==="gateway")continue;node.type="sra";node.height=5;node.range=0.75;if(node.markerElement)node.markerElement.style.background="green";}
-      await computeLinks();
-      for(let pass=0;pass<10;pass++){
-        let disconnected=[];
-        for(const node of nodesRef.current){if(node.type==="gateway")continue;const path=getPath(node);if(!path.some(n=>n.type==="gateway"))disconnected.push(node);}
-        if(disconnected.length===0)break;
-        let bestCandidate=null,bestScore=-1;
-        for(const node of disconnected){
-          let inRange=false;for(const g of nodesRef.current){if(g.type!=="gateway"&&g.type!=="lra")continue;if(distance(node,g)<=3){inRange=true;break;}}if(!inRange)continue;
-          let score=0;for(const other of disconnected){if(other===node)continue;const dd=distance(node,other);if(dd<=0.75)score+=2;else if(dd<=3)score+=1;}
-          if(score===0){for(const other of nodesRef.current){if(other===node)continue;if(other.type==="gateway"||other.type==="single")continue;const dd=distance(node,other);if(dd>3)continue;const op=getPath(other);if(!op.some(n=>n.type==="gateway")&&dd<=3)score+=1;}}
-          if(score>bestScore){bestScore=score;bestCandidate=node;}
-        }
-        if(!bestCandidate)break;
-        bestCandidate.type="lra";bestCandidate.height=10;bestCandidate.range=3;bestCandidate._wasUpgraded=true;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
-        recs.push({text:`\u2B06\uFE0F ${bestCandidate.name.toUpperCase()} upgraded to LRA (needed for connectivity)`});
-        await computeLinks();
-      }
-      await computeLinks();await optimizeHeights();await computeLinks();
-      try{await rescueDisconnected();await computeLinks();}catch(e){console.log("Rescue pass error:",e);}
-      for(const node of nodesRef.current){
-        if(node.type!=="sra")continue;const link=linksRef.current[node.name];if(!link)continue;const los=await checkLOS(node,link,node.height,link.height);if(los.clear)continue;
-        for(const bridge of nodesRef.current){
-          if(bridge===node)continue;if(bridge.type!=="sra")continue;const dBridge=distance(bridge,node);if(dBridge>3)continue;
-          const bridgePath=getPath(bridge);if(!bridgePath.some(n=>n.type==="gateway"))continue;
-          for(let bh=10;bh<=30;bh+=5){for(let nh=5;nh<=30;nh+=5){const testLos=await checkLOS(bridge,node,bh,nh);if(testLos.clear){bridge.type="lra";bridge.height=bh;bridge.range=3;if(bridge.markerElement)bridge.markerElement.style.background="orange";if(nh>5){node.type="lra";node.height=nh;node.range=3;if(node.markerElement)node.markerElement.style.background="orange";}await computeLinks();break;}}if(bridge.type==="lra")break;}if(bridge.type==="lra")break;
-        }
-      }
-      await computeLinks();
-      try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
-      for(const node of nodesRef.current){
-        if(node.type==="gateway"||node.type==="single") continue;
-        const path=getPath(node);
-        if(!path.some(n=>n.type==="gateway")){
-          if(node.type==="lra" && node._wasUpgraded){
-            node.type="single"; node.range=0; node.outOfRange=false;
-            if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
-            recs.push({text:`\u26AB ${node.name.toUpperCase()}: No gateway path \u2014 set as Single Modem`});
-          } else {
-            recs.push({text:`\u26A0\uFE0F ${node.name.toUpperCase()}: Cannot reach gateway \u2014 consider repositioning or adding LRA`});
-          }
-        }
-      }
-    }catch(e){console.log("Optimize error:",e);}
-    draw();setRecommendations(prev=>[...prev,...recs]);
+// =====================================================
+// AUTO-OPTIMIZE (locked-rule engine)
+// =====================================================
+async function newAutoOptimize() {
+  if (!nodesRef.current.length) {
+    alert("Add some nodes first, then run Auto-Optimize.");
+    return;
   }
 
-  async function autoOptimizeNetwork(){
-    if(!importedData.length)return; nodesRef.current=[]; const map=mapRef.current; const recs=[];
-    try{
-      let gateway=importedData[0],bestCount=-1;
-      for(const r of importedData){let count=0;for(const other of importedData){if(other===r)continue;if(distance({lng:r.Longitude,lat:r.Latitude},{lng:other.Longitude,lat:other.Latitude})<=3)count++;}if(count>bestCount){bestCount=count;gateway=r;}}
-      map.flyTo({center:[gateway.Longitude,gateway.Latitude],zoom:13});
-      addNode(map,gateway.Longitude,gateway.Latitude+(60/364000),"gateway","GATEWAY-1",true);
-      for(let i=0;i<importedData.length;i++){const r=importedData[i];addNode(map,r.Longitude,r.Latitude,"sra",r.Name,true);}
-      await computeLinks();
-      for(let pass=0;pass<10;pass++){
-        let disconnected=[];
-        for(const node of nodesRef.current){if(node.type==="gateway"||node.type==="single")continue;const path=getPath(node);if(!path.some(n=>n.type==="gateway"))disconnected.push(node);}
-        if(disconnected.length===0){for(const node of nodesRef.current){if(node.type!=="sra")continue;const link=linksRef.current[node.name];if(!link){disconnected.push(node);continue;}const los=await checkLOS(node,link,node.height,link.height);if(!los.clear)disconnected.push(node);}}
-        if(disconnected.length===0)break;
-        let bestCandidate=null,bestScore=-1;
-        for(const node of disconnected){
-          let inRange=false;for(const g of nodesRef.current){if(g.type!=="gateway"&&g.type!=="lra")continue;if(distance(node,g)<=3){inRange=true;break;}}if(!inRange)continue;
-          let score=0;for(const other of disconnected){if(other===node)continue;const dd=distance(node,other);if(dd<=0.75)score+=2;else if(dd<=3)score+=1;}
-          if(score===0){for(const other of nodesRef.current){if(other===node||other.type==="gateway"||other.type==="single")continue;const dd=distance(node,other);if(dd>3)continue;const op=getPath(other);if(!op.some(n=>n.type==="gateway")&&dd<=3)score+=1;}}
-          if(score>bestScore){bestScore=score;bestCandidate=node;}
-        }
-        if(!bestCandidate)break;
-        bestCandidate.type="lra";bestCandidate.range=3;bestCandidate.height=10;bestCandidate._wasUpgraded=true;if(bestCandidate.markerElement)bestCandidate.markerElement.style.background="orange";
-        await computeLinks();
-      }
-      await optimizeHeights();await computeLinks();
-      try{await rescueDisconnected();await computeLinks();}catch(e){console.log("Rescue pass error:",e);await computeLinks();}
-      for(const node of nodesRef.current){
-        if(node.type!=="sra")continue;const link=linksRef.current[node.name];if(!link)continue;const los=await checkLOS(node,link,node.height,link.height);if(los.clear)continue;
-        for(const bridge of nodesRef.current){
-          if(bridge===node||bridge.type!=="sra")continue;const dBridge=distance(bridge,node);if(dBridge>3)continue;
-          const bridgePath=getPath(bridge);if(!bridgePath.some(n=>n.type==="gateway"))continue;
-          for(let bh=10;bh<=30;bh+=5){for(let nh=5;nh<=30;nh+=5){const testLos=await checkLOS(bridge,node,bh,nh);if(testLos.clear){bridge.type="lra";bridge.height=bh;bridge.range=3;if(bridge.markerElement)bridge.markerElement.style.background="orange";if(nh>5){node.type="lra";node.height=nh;node.range=3;if(node.markerElement)node.markerElement.style.background="orange";}await computeLinks();break;}}if(bridge.type==="lra")break;}if(bridge.type==="lra")break;
-        }
-      }
-      await computeLinks();
-      try{ await optimizeFresnel(); await computeLinks(); }catch(e){ console.log("Fresnel optimize error:",e); }
-      for(const node of nodesRef.current){
-        if(node.type==="gateway"||node.type==="single") continue;
-        const path=getPath(node);
-        if(!path.some(n=>n.type==="gateway")){
-          if(node.type==="lra" && node._wasUpgraded){
-            node.type="single"; node.range=0; node.outOfRange=false;
-            if(node.markerElement){node.markerElement.style.background="black";node.markerElement.style.border="none";}
-          }
-        }
-      }
-    }catch(e){console.log("Auto-optimize error:",e);}
-    draw();setRecommendations(prev=>[...prev,...recs]);setShowOptimizePrompt(false);setNodeVersion(v=>v+1);
+  try {
+    await runFullOptimizer({
+  nodes: nodesRef.current,
+  addNodeFn: addNode,
+  mapRef: mapRef.current,
+  onProgress: (msg) => {
+    setLoadingState({
+      title: "Running Auto-Optimize…",
+      subtitle: msg
+    });
   }
+});
 
-  // ========== MULTI-PROJECT FUNCTIONS ==========
+    redraw();
+
+    setRecommendations(prev => [
+      ...prev,
+      { text: "⚡ Auto-Optimize complete — locked rules applied." }
+    ]);
+  } catch (err) {
+    console.error("Auto-Optimize error:", err);
+    alert("Auto-Optimize failed. Check console for details.");
+  }
+}  // ========== MULTI-PROJECT FUNCTIONS ==========
   function serializeProject(){
     const map = mapRef.current;
     return {
@@ -1524,12 +2296,121 @@ export default function Map(){
   }
 
 return (<div style={{display:"flex",height:"100vh"}}>
-{showOptimizePrompt && (<div style={{position:"absolute",top:"30%",left:"35%",background:"#fff",padding:20,border:"2px solid black",zIndex:1000}}>
-  <div style={{marginBottom:10,fontWeight:"bold"}}>Do you want to Auto-Optimize this network?</div>
-  <button onClick={autoOptimizeNetwork} style={{marginRight:10}}>Yes</button>
-  <button onClick={()=>{setShowOptimizePrompt(false);importedData.forEach(r=>{addNode(mapRef.current,r.Longitude,r.Latitude,"sra",r.Name);});
-    let avgLat=0,avgLng=0;for(const r of importedData){avgLat+=r.Latitude;avgLng+=r.Longitude;}avgLat/=importedData.length;avgLng/=importedData.length;mapRef.current.flyTo({center:[avgLng,avgLat],zoom:13});}}>No</button>
-</div>)}
+{/* ===== PROGRESS OVERLAY (spinner only) ===== */}
+{loadingState && (
+  <div style={{
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100vw",
+    height: "100vh",
+    background: "rgba(10,10,20,0.78)",
+    backdropFilter: "blur(2px)",
+    zIndex: 5000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "auto"
+  }}>
+    <div style={{
+      background: "linear-gradient(135deg, #1a1a2e, #0d0d1a)",
+      border: "1px solid rgba(0,188,212,0.3)",
+      borderRadius: 10,
+      padding: "22px 28px",
+      minWidth: 320,
+      maxWidth: 420,
+      textAlign: "center",
+      color: "#fff",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.6)"
+    }}>
+      <div style={{
+        width: 42,
+        height: 42,
+        margin: "4px auto 14px",
+        border: "4px solid rgba(0,188,212,0.18)",
+        borderTop: "4px solid #00bcd4",
+        borderRadius: "50%",
+        animation: "spin 0.9s linear infinite"
+      }}/>
+
+      <div style={{
+        fontWeight: "bold",
+        fontSize: 16,
+        color: "#00bcd4",
+        marginBottom: 4
+      }}>
+        {loadingState.title || "Working…"}
+      </div>
+
+      {loadingState.subtitle && (
+        <div style={{color: "#bbb", fontSize: 12, marginTop: 4}}>
+          {loadingState.subtitle}
+        </div>
+      )}
+    </div>
+
+    <style>{`
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `}</style>
+  </div>
+)}
+{showOptimizePrompt && (
+  <div style={{position:"absolute",top:"30%",left:"35%",background:"#fff",padding:20,border:"2px solid black",zIndex:1000}}>
+    <div style={{marginBottom:10,fontWeight:"bold"}}>Do you want to Auto-Optimize this network?</div>
+    <button
+      onClick={async () => {
+        if (!importedData.length) { setShowOptimizePrompt(false); return; }
+
+        // Reset map state and load uploaded coords as SRAs first
+        nodesRef.current.forEach(n => { if (n.marker) n.marker.remove(); });
+        nodesRef.current = [];
+
+        for (const r of importedData) {
+          addNode(mapRef.current, r.Longitude, r.Latitude, "sra", r.Name, true);
+        }
+
+        // Run the NEW optimizer
+        await runFullOptimizer({
+          nodes: nodesRef.current,
+          addNodeFn: addNode,
+          mapRef: mapRef.current,
+        });
+
+        // Center map
+        let avgLat = 0, avgLng = 0;
+        for (const r of importedData) { avgLat += r.Latitude; avgLng += r.Longitude; }
+        avgLat /= importedData.length;
+        avgLng /= importedData.length;
+        mapRef.current.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+
+        redraw();
+        setShowOptimizePrompt(false);
+      }}
+      style={{marginRight:10}}
+    >
+      Yes
+    </button>
+    <button
+      onClick={() => {
+        setShowOptimizePrompt(false);
+        importedData.forEach(r => {
+         addNode(mapRef.current, r.Longitude, r.Latitude, "sra", r.Name, true);
+        });
+        let avgLat = 0, avgLng = 0;
+        for (const r of importedData) { avgLat += r.Latitude; avgLng += r.Longitude; }
+        avgLat /= importedData.length;
+        avgLng /= importedData.length;
+        mapRef.current.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+        redraw();
+      }}
+    >
+      No
+    </button>
+  </div>
+)}
 <div style={{width:300,display:"flex",flexDirection:"column",height:"100%",borderRight:"1px solid #333",background:"#1a1a2e"}}>
   {/* ========== PROJECT TABS ========== */}
   <div style={{display:"flex",alignItems:"center",borderBottom:"2px solid #333",background:"#0d0d1a",padding:"0",overflowX:"auto",flexShrink:0,minHeight:36}}>
@@ -1569,13 +2450,101 @@ return (<div style={{display:"flex",height:"100vh"}}>
   </div>
   {/* ========== SIDEBAR CONTENT ========== */}
   <div style={{padding:12}}>
+  {/* ===== SIDEBAR STATUS HEADER ===== */}
+<div style={{
+  marginBottom: 10,
+  padding: "8px 10px",
+  borderRadius: 6,
+  background: "linear-gradient(135deg, #0d0d1a, #1a1a2e)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.4)"
+}}>
+  {/* App / project title */}
+  <div style={{
+    display:"flex",
+    justifyContent:"space-between",
+    alignItems:"center",
+    marginBottom: 6
+  }}>
+    <div style={{ fontWeight: "bold", color:"#00bcd4", fontSize: 13 }}>
+      📡 RF Planner
+    </div>
+    <div style={{ color:"#888", fontSize: 11 }}>
+      {projects.find(p => p.id === activeProjectId)?.name || "Project"}
+    </div>
+  </div>
+
+  {/* Health badge */}
+  {(() => {
+    const totalNodes      = nodesRef.current.length;
+    const flaggedCount    = nodesRef.current.filter(n => n.flagged && n.type !== "single").length;
+    const disconnected    = nodesRef.current.filter(n => n.outOfRange && n.type !== "single").length;
+
+    let badgeColor = "#4caf50";   // green
+    let badgeText  = "🟢 Healthy";
+    if (disconnected > 0) {
+      badgeColor = "#f44336";
+      badgeText  = "⚠️ Disconnected";
+    } else if (flaggedCount > 0) {
+      badgeColor = "#ff1493";
+      badgeText  = "🟪 Flagged";
+    }
+
+    return (
+      <div style={{
+        display:"flex",
+        justifyContent:"space-between",
+        alignItems:"center"
+      }}>
+        <div style={{
+          background: badgeColor,
+          color: "#fff",
+          fontWeight: "bold",
+          fontSize: 11,
+          padding: "2px 8px",
+          borderRadius: 999
+        }}>
+          {badgeText}
+        </div>
+
+        <div style={{ color:"#aaa", fontSize: 11 }}>
+          {totalNodes} nodes
+          {flaggedCount > 0 && (
+            <span style={{color:"#ff1493", marginLeft:6}}>
+              | 🟪 {flaggedCount}
+            </span>
+          )}
+          {disconnected > 0 && (
+            <span style={{color:"red", marginLeft:6}}>
+              | ⚠️ {disconnected}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  })()}
+</div>
     <div style={{display:"flex",gap:4}}>
       <button onClick={()=>setMode("gateway")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="gateway"?"#0000cc":"blue",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDD35"} Gateway</button>
       <button onClick={()=>setMode("lra")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="lra"?"#cc7a00":"orange",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE0"} LRA</button>
       <button onClick={()=>setMode("sra")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="sra"?"#2e7d32":"green",fontWeight:"bold",fontSize:11}}>{"\uD83D\uDFE2"} SRA</button>
       <button onClick={()=>setMode("single")} style={{flex:1,padding:"6px",border:"1px solid #fff",cursor:"pointer",color:"white",background:mode==="single"?"#333":"black",fontWeight:"bold",fontSize:11}}>{"\u26AB"} Single</button>
     </div>
-    <button onClick={optimizeExisting} style={{marginTop:6,width:"100%",background:"#4CAF50",color:"white",padding:"6px",border:"1px solid #fff",cursor:"pointer"}}>{"\u26A1"} Auto-Optimize</button>
+<button
+  onClick={newAutoOptimize}
+  style={{
+    marginTop: 6,
+    width: "100%",
+    background: "#4CAF50",
+    color: "white",
+    padding: "6px",
+    border: "1px solid #fff",
+    cursor: "pointer",
+    fontWeight: "bold"
+  }}
+>
+  ⚡ Auto-Optimize
+</button>
     <button onClick={()=>{nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();});nodesRef.current=[];linksRef.current={};setRecommendations([]);setSelectedNode(null);redraw();}} style={{marginTop:6,width:"100%",background:"#f44336",color:"white",padding:"6px",border:"1px solid #fff",cursor:"pointer"}}>{"\uD83D\uDDD1\uFE0F"} Clear All</button>
   </div>
   <div style={{flex:1,overflowY:"auto",padding:12}}>
@@ -1585,6 +2554,40 @@ return (<div style={{display:"flex",height:"100vh"}}>
         <button onClick={()=>{saveNetwork();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"white",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCBE"} Save Network</button>
         <label style={{display:"block",width:"100%",padding:"8px 12px",color:"white",borderBottom:"1px solid #444",cursor:"pointer",fontSize:13,boxSizing:"border-box"}}>{"\uD83D\uDCC2"} Load Network<input type="file" accept=".json" onChange={(e)=>{loadNetwork(e);setShowFileMenu(false);}} style={{display:"none"}}/></label>
         <button onClick={()=>{exportExcel();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#FF9800",border:"none",borderBottom:"1px solid #444",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCCA"} Export to Excel</button>
+        <button
+  onClick={() => { exportInstallReport(); setShowFileMenu(false); }}
+  style={{
+    width: "100%",
+    padding: "8px 12px",
+    background: "transparent",
+    color: "#4caf50",
+    border: "none",
+    borderBottom: "1px solid #444",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 13,
+    fontWeight: "bold"
+  }}
+>
+  📄 Export Install Report (NEW)
+</button>
+<button
+  onClick={() => { exportInstallReportPDF(); setShowFileMenu(false); }}
+  style={{
+    width: "100%",
+    padding: "8px 12px",
+    background: "transparent",
+    color: "#ff5252",
+    border: "none",
+    borderBottom: "1px solid #444",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 13,
+    fontWeight: "bold"
+  }}
+>
+  🧾 Export Install Report (PDF)
+</button>
         <button onClick={()=>{exportBundle();setShowFileMenu(false);}} style={{width:"100%",padding:"8px 12px",background:"transparent",color:"#CE93D8",border:"none",cursor:"pointer",textAlign:"left",fontSize:13}}>{"\uD83D\uDCE6"} Export All (Zip)</button>
       </div>)}
     </div>
@@ -1601,34 +2604,120 @@ return (<div style={{display:"flex",height:"100vh"}}>
     <textarea value={inputCoords} onChange={e=>setInputCoords(e.target.value)} placeholder="Name,Lat,Lng" style={{width:"100%",height:80}}/>
     <button onClick={importText} style={{width:"100%",marginBottom:6,background:"#4CAF50",color:"white",border:"none",padding:"6px",cursor:"pointer",fontSize:14}}>{"\uD83D\uDCCD"} Import Coordinates</button>
     <label style={{display:"block",width:"100%",marginBottom:6,padding:"6px",background:"#2196F3",color:"white",textAlign:"center",cursor:"pointer",border:"none",fontSize:14,boxSizing:"border-box"}}>{"\uD83D\uDCC2"} Upload Excel<input type="file" accept=".xlsx,.xls" onChange={uploadExcel} style={{display:"none"}}/></label>
+    <label style={{display:"block",width:"100%",marginBottom:6,padding:"6px",background:"#8e44ad",color:"white",textAlign:"center",cursor:"pointer",border:"none",fontSize:14,boxSizing:"border-box"}}>📍 Upload KMZ<input type="file" accept=".kmz" onChange={uploadKmz} style={{display:"none"}}/></label>
     <hr/>
     <hr/>
-    <div>
-      <div style={{fontWeight:"bold",marginBottom:6,color:"#fff"}}>Nodes ({nodesRef.current.length})</div>
-      <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>{"\uD83D\uDD35"} {nodesRef.current.filter(n=>n.type==="gateway").length} Gateway{" | "}{"\uD83D\uDFE0"} {nodesRef.current.filter(n=>n.type==="lra").length} LRA{" | "}{"\uD83D\uDFE2"} {nodesRef.current.filter(n=>n.type==="sra").length} SRA</div>
-      <div style={{fontSize:11,color:"#aaa",marginBottom:6}}>{"\u26AB"} {nodesRef.current.filter(n=>n.type==="single").length} Single Modem
-        {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length>0&&(<span style={{color:"red"}}>{" | "}{"\u26A0\uFE0F"} {nodesRef.current.filter(n=>n.outOfRange&&n.type!=="single").length} Disconnected</span>)}
-      </div>
-      {nodesRef.current.map((n,i)=>(<div key={i} style={{marginBottom:4}}>
-        <span style={{color:n.outOfRange||n.type==="single"?"#999":n.type==="gateway"?"blue":n.type==="lra"?"orange":"green",cursor:"pointer",textDecoration:"underline"}}
-         onClick={()=>{
-  mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});
-  setSelectedNode(n);setEditName(n.name);setEditType(n.type);setEditHeight(n.height);setEditModbus(n.modbusId||"");
-  if(n.type !== "gateway" && n.type !== "single" && linksRef.current[n.name]){
-    try{ generateProfile(n); }catch(err){ console.log("Profile error:", err); }
-  } else {
-    setProfileData({ from: n, to: n, points: [{dist:0,elev:0,lng:n.lng,lat:n.lat}], totalDist: 0, isMeasure: false });
-    setProfileFromHeight(n.height); setProfileToHeight(n.height);
-    setProfileFromType(n.type); setProfileToType(n.type);
-    setShowProfile(true);
-  }
-}}>
-          {n.name} ({n.type.toUpperCase()}) {n.type!=="single"?`${n.recommendedHeight||n.height} ft`:""}{n.modbusId ? ` [M:${n.modbusId}]` : ""}
+    {/* ===== NODE LIST (v2 — aligned with new optimizer) ===== */}
+<div>
+  {/* Header */}
+  <div style={{fontWeight:"bold",marginBottom:6,color:"#fff",fontSize:13}}>
+    Nodes ({nodesRef.current.length})
+  </div>
+
+  {/* Counts row 1 */}
+  <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>
+    🔵 {nodesRef.current.filter(n=>n.type==="gateway").length} Gateway
+    {" | "}
+    🟠 {nodesRef.current.filter(n=>n.type==="lra").length} LRA
+    {" | "}
+    🟢 {nodesRef.current.filter(n=>n.type==="sra").length} SRA
+  </div>
+
+  {/* Counts row 2 — single, flagged, disconnected */}
+  <div style={{fontSize:11,color:"#aaa",marginBottom:6}}>
+    ⚫ {nodesRef.current.filter(n=>n.type==="single").length} Single
+
+    {nodesRef.current.filter(n=>n.flagged && n.type!=="single").length>0 && (
+      <span style={{color:"#ff1493", marginLeft:6}}>
+        | 🟪 {nodesRef.current.filter(n=>n.flagged && n.type!=="single").length} Flagged
+      </span>
+    )}
+
+    {nodesRef.current.filter(n=>n.outOfRange && n.type!=="single").length>0 && (
+      <span style={{color:"red", marginLeft:6}}>
+        | ⚠️ {nodesRef.current.filter(n=>n.outOfRange && n.type!=="single").length} Disconnected
+      </span>
+    )}
+  </div>
+
+  {/* Node list */}
+  {nodesRef.current.map((n,i)=> {
+    let color;
+    if (n.outOfRange) color = "#888";
+    else if (n.type === "gateway") color = "#3a8dff";
+    else if (n.type === "lra")     color = "#ff9500";
+    else if (n.type === "sra")     color = "#4caf50";
+    else if (n.type === "single")  color = "#999";
+    else color = "#ccc";
+
+    return (
+      <div key={i} style={{
+        marginBottom:4,
+        paddingBottom:4,
+        borderBottom:"1px dashed rgba(255,255,255,0.07)"
+      }}>
+        <span
+          style={{
+            color,
+            cursor:"pointer",
+            textDecoration:"underline",
+            fontWeight: n.flagged || n.outOfRange ? "bold" : "normal"
+          }}
+          onClick={()=>{
+            mapRef.current.flyTo({center:[n.lng,n.lat],zoom:15});
+            setSelectedNode(n);
+            setEditName(n.name);
+            setEditType(n.type);
+            setEditHeight(n.height);
+            setEditModbus(n.modbusId || "");
+            if(n.type !== "gateway" && n.type !== "single" && linksRef.current[n.name]){
+              try { generateProfile(n); } catch(err){ console.log("Profile error:", err); }
+            } else {
+              setProfileData({
+                from: n, to: n,
+                points: [{ dist:0, elev:0, lng:n.lng, lat:n.lat }],
+                totalDist: 0, isMeasure: false
+              });
+              setProfileFromHeight(n.height);
+              setProfileToHeight(n.height);
+              setProfileFromType(n.type);
+              setProfileToType(n.type);
+              setShowProfile(true);
+            }
+          }}
+        >
+          {n.name} ({n.type.toUpperCase()})
+          {n.type !== "single" ? ` ${n.height} ft` : ""}
+          {n.modbusId ? ` [M:${n.modbusId}]` : ""}
         </span>
-        {n.elevation!==null&&(<span style={{color:"#aaa",fontSize:11}}>{" "}| Elev: {n.elevation}ft</span>)}
-        {n.blocked&&n.blockDetail&&(<div style={{color:"red",fontSize:11,marginLeft:10}}>{n.blockDetail}</div>)}
-      </div>))}
-    </div>
+
+        <div style={{marginLeft:10, marginTop:2, fontSize:11}}>
+          {n.elevation !== null && (
+            <span style={{color:"#aaa"}}>Elev: {n.elevation} ft</span>
+          )}
+
+          {n.flagged && !n.outOfRange && (
+            <span style={{color:"#ff1493", marginLeft:8, fontWeight:"bold"}}>
+              🟪 FLAGGED
+            </span>
+          )}
+
+          {n.outOfRange && (
+            <span style={{color:"red", marginLeft:8, fontWeight:"bold"}}>
+              ⚠️ DISCONNECTED
+            </span>
+          )}
+
+          {n.blocked && n.blockDetail && !n.outOfRange && (
+            <div style={{color:"#ff6b6b", fontSize:11, marginTop:2}}>
+              {n.blockDetail}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  })}
+</div>
     <hr/>
     {recommendations.map((r,i)=>(<div key={i} style={{marginBottom:6,cursor:r.node?"pointer":"default",textDecoration:r.node?"underline":"none",color:r.node?"#2196F3":"inherit"}}
       onClick={()=>{if(r.node)generateProfile(r.node,r.target||null);}}>{r.text}{r.node&&" \uD83D\uDCCA"}</div>))}
@@ -1684,6 +2773,171 @@ return (<div style={{display:"flex",height:"100vh"}}>
 </div>)}
 <div style={{flex:1,position:"relative"}}>
   <div ref={containerRef} style={{width:"100%",height:"100%"}}/>
+  {/* ===== Inline Node Editor (single-click popup) ===== */}
+{selectedNode && !showProfile && (
+  <div style={{
+    position: "absolute",
+    top: 60,
+    right: 10,
+    zIndex: 1200,
+    width: 260,
+    background: "linear-gradient(135deg,#1a1a2e,#0d0d1a)",
+    border: "1px solid rgba(0,188,212,0.4)",
+    borderRadius: 8,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+    color: "#fff",
+    padding: 12
+  }}>
+    <div style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8
+    }}>
+      <div style={{ color: "#00bcd4", fontWeight: "bold", fontSize: 13 }}>
+        🛠️ Edit Node
+      </div>
+      <button
+        onClick={() => setSelectedNode(null)}
+        style={{
+          background: "transparent",
+          color: "#bbb",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 14
+        }}
+      >
+        ✕
+      </button>
+    </div>
+
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div>
+        <label style={{ color: "#888", fontSize: 11 }}>Name</label>
+        <input
+          value={editName}
+          onChange={e => setEditName(e.target.value)}
+          style={{
+            width: "100%",
+            padding: 4,
+            background: "#333",
+            color: "#fff",
+            border: "1px solid #555",
+            borderRadius: 4,
+            fontSize: 12,
+            boxSizing: "border-box"
+          }}
+        />
+      </div>
+
+      <div>
+        <label style={{ color: "#888", fontSize: 11 }}>Type</label>
+        <select
+          value={editType}
+          onChange={e => setEditType(e.target.value)}
+          style={{
+            width: "100%",
+            padding: 4,
+            background: "#333",
+            color: "#fff",
+            border: "1px solid #555",
+            borderRadius: 4,
+            fontSize: 12,
+            boxSizing: "border-box"
+          }}
+        >
+          <option value="gateway">Gateway</option>
+          <option value="lra">LRA</option>
+          <option value="sra">SRA</option>
+          <option value="single">Single Modem</option>
+        </select>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <label style={{ color: "#888", fontSize: 11 }}>Height (ft)</label>
+          <input
+            type="number"
+            value={editHeight}
+            onChange={e => setEditHeight(Number(e.target.value))}
+            style={{
+              width: "100%",
+              padding: 4,
+              background: "#333",
+              color: "#fff",
+              border: "1px solid #555",
+              borderRadius: 4,
+              fontSize: 12,
+              boxSizing: "border-box"
+            }}
+          />
+        </div>
+
+        {editType !== "gateway" && (
+          <div style={{ flex: 1 }}>
+            <label style={{ color: "#888", fontSize: 11 }}>Modbus</label>
+            <input
+              type="number"
+              value={editModbus}
+              onChange={e => setEditModbus(Number(e.target.value))}
+              style={{
+                width: "100%",
+                padding: 4,
+                background: "#333",
+                color: "#fff",
+                border: "1px solid #555",
+                borderRadius: 4,
+                fontSize: 12,
+                boxSizing: "border-box"
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={() => {
+          if (!selectedNode) return;
+          selectedNode.name = editName;
+          selectedNode.type = editType;
+          selectedNode.height = editHeight;
+          selectedNode.range =
+            editType === "gateway" ? 3 :
+            editType === "lra" ? 3 :
+            editType === "single" ? 0 : 0.75;
+          selectedNode.modbusId = editType === "gateway" ? null : (editModbus || null);
+
+          // Update visible color immediately
+          if (selectedNode.markerElement) {
+            selectedNode.markerElement.style.background =
+              editType === "gateway" ? "blue" :
+              editType === "lra" ? "orange" :
+              editType === "single" ? "black" : "green";
+          }
+
+          saveSnapshot();
+          setNodeVersion(v => v + 1);
+          redraw();
+        }}
+        style={{
+          marginTop: 4,
+          padding: "6px 10px",
+          background: "#4CAF50",
+          color: "#fff",
+          border: "none",
+          borderRadius: 4,
+          cursor: "pointer",
+          fontWeight: "bold",
+          fontSize: 12
+        }}
+      >
+        💾 Save Changes
+      </button>
+    </div>
+  </div>
+)}
+  {/* ===== Map Legend (new) ===== */}
+<MapLegend />
   {showHeatmap && (
     <div style={{position:"absolute",bottom:30,right:10,zIndex:1000,background:"rgba(20,20,30,0.9)",
       border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"10px 14px",
