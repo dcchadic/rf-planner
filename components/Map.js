@@ -144,6 +144,18 @@ export default function Map(){
 // loadingState = { title: "...", subtitle: "...", progress: 0..1 (optional) }
 // =====================================================
 const [loadingState, setLoadingState] = useState(null);
+// =====================================================
+// TEXT PROMPT MODAL (replaces native prompt() which is blocked in some browsers)
+// shape: { title, defaultValue, onConfirm: (value) => void }
+// =====================================================
+const [textPrompt, setTextPrompt] = useState(null);
+// =====================================================
+// MULTI-GATEWAY LOAD PROMPT STATE
+// Shown when a loaded file contains 2+ gateways and we want
+// to ask the user whether to auto-split into project tabs.
+// =====================================================
+const [multiGatewayLoadPrompt, setMultiGatewayLoadPrompt] = useState(null);
+// shape: { nodes: [...], gatewayCount: number, fileName: "..." }
 
   // ---------- FCC TOWER STATE ----------
   const [showFCCTowers, setShowFCCTowers] = useState(false);
@@ -1290,18 +1302,30 @@ async function restoreModeSnapshot(mode) {
   }
 
   // SAVE NETWORK - uses project name as default
-  function saveNetwork(){
-    const currentProject = projects.find(p => p.id === activeProjectId);
-    const fileName = prompt("Name this network:", currentProject?.name || "rf-network");
-    if(!fileName) return;
-    const saveData = {
-      nodes: nodesRef.current.map(n => ({ name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range,modbusId:n.modbusId||null })),
-      fccTowersVisible: showFCCTowers
-    };
-    const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = fileName + ".json"; a.click(); URL.revokeObjectURL(url);
-  }
+ function saveNetwork(){
+  const currentProject = projects.find(p => p.id === activeProjectId);
+  setTextPrompt({
+    title: "Name this network",
+    defaultValue: currentProject?.name || "rf-network",
+    onConfirm: (fileName) => {
+      if (!fileName) return;
+      const saveData = {
+        nodes: nodesRef.current.map(n => ({
+          name: n.name, type: n.type, lat: n.lat, lng: n.lng,
+          height: n.height, range: n.range, modbusId: n.modbusId || null
+        })),
+        fccTowersVisible: showFCCTowers
+      };
+      const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName + ".json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  });
+}
   // =====================================================
 // INSTALL REPORT - PDF VERSION (Step C2)
 // Installer-ready PDF report.
@@ -1858,47 +1882,281 @@ const bomRows = [
   }
 
   async function exportBundle(){
-    const currentProject = projects.find(p => p.id === activeProjectId);
-    const folderName=prompt("Name this export:",currentProject?.name || "rf-network"); if(!folderName)return;
-    const zip=new JSZip(); const folder=zip.folder(folderName);
-    const nodeRows=nodesRef.current.map(n=>({"Name":n.name,"Type":n.type.toUpperCase(),"Latitude":n.lat,"Longitude":n.lng,"Antenna Height (ft)":n.height,"Recommended Height (ft)":n.recommendedHeight||n.height,"Ground Elevation (ft)":n.elevation||"N/A","Range (mi)":n.range,"Status":n.outOfRange?"SINGLE MODEM":n.blocked?"BLOCKED":"OK"}));
-    const connectionRows=[];
-    for(const a of nodesRef.current){if(a.type==="gateway")continue;const target=linksRef.current[a.name];if(target){const d=distance(a,target);const signal=calcPower(d);connectionRows.push({"From":a.name,"To":target.name,"Distance (mi)":Number(d.toFixed(2)),"Signal (dBm)":Number(signal.toFixed(0)),"LOS":a.blocked?"BLOCKED":"CLEAR"});}else{connectionRows.push({"From":a.name,"To":"NONE","Distance (mi)":"N/A","Signal (dBm)":"N/A","LOS":"NO CONNECTION"});}}
-    const summaryRows=[{"Item":"Total Nodes","Value":nodesRef.current.length},{"Item":"Gateways","Value":nodesRef.current.filter(n=>n.type==="gateway").length},{"Item":"LRAs","Value":nodesRef.current.filter(n=>n.type==="lra").length},{"Item":"SRAs","Value":nodesRef.current.filter(n=>n.type==="sra").length},{"Item":"Single Modems","Value":nodesRef.current.filter(n=>n.type==="single"||n.outOfRange).length}];
-    const recRows=recommendations.map(r=>({"Recommendation":r.text}));
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(nodeRows),"Nodes");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(connectionRows),"Connections");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summaryRows),"Summary");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(recRows),"Recommendations");
-    const excelBuffer=XLSX.write(wb,{bookType:"xlsx",type:"array"}); folder.file(folderName+"-report.xlsx",excelBuffer);
-    const networkData={nodes:nodesRef.current.map(n=>({name:n.name,type:n.type,lat:n.lat,lng:n.lng,height:n.height,range:n.range})),fccTowersVisible:showFCCTowers};
-    folder.file(folderName+"-network.json",JSON.stringify(networkData,null,2));
-    const mapContainer=containerRef.current;
-    const screenshotCanvas=await html2canvas(mapContainer,{useCORS:true,allowTaint:true,backgroundColor:null});
-    const dataURL=screenshotCanvas.toDataURL("image/png"); const imgData=dataURL.split(",")[1];
-    folder.file(folderName+"-map.png",imgData,{base64:true});
-    const url=window.location.href; folder.file("Open RF Planner.url","[InternetShortcut]\nURL="+url+"\n");
-    const content=await zip.generateAsync({type:"blob"});
-    const blobUrl=URL.createObjectURL(content); const a=document.createElement("a"); a.href=blobUrl; a.download=folderName+".zip"; a.click(); URL.revokeObjectURL(blobUrl);
-  }
+  const currentProject = projects.find(p => p.id === activeProjectId);
+  setTextPrompt({
+    title: "Name this export",
+    defaultValue: currentProject?.name || "rf-network",
+    onConfirm: async (folderName) => {
+      if (!folderName) return;
+      const zip = new JSZip();
+      const folder = zip.folder(folderName);
+      const nodeRows = nodesRef.current.map(n => ({
+        "Name": n.name, "Type": n.type.toUpperCase(), "Latitude": n.lat, "Longitude": n.lng,
+        "Antenna Height (ft)": n.height, "Recommended Height (ft)": n.recommendedHeight || n.height,
+        "Ground Elevation (ft)": n.elevation || "N/A", "Range (mi)": n.range,
+        "Status": n.outOfRange ? "SINGLE MODEM" : n.blocked ? "BLOCKED" : "OK"
+      }));
+      const connectionRows = [];
+      for (const a of nodesRef.current) {
+        if (a.type === "gateway") continue;
+        const target = linksRef.current[a.name];
+        if (target) {
+          const d = distance(a, target); const signal = calcPower(d);
+          connectionRows.push({ "From": a.name, "To": target.name, "Distance (mi)": Number(d.toFixed(2)), "Signal (dBm)": Number(signal.toFixed(0)), "LOS": a.blocked ? "BLOCKED" : "CLEAR" });
+        } else {
+          connectionRows.push({ "From": a.name, "To": "NONE", "Distance (mi)": "N/A", "Signal (dBm)": "N/A", "LOS": "NO CONNECTION" });
+        }
+      }
+      const summaryRows = [
+        { "Item": "Total Nodes", "Value": nodesRef.current.length },
+        { "Item": "Gateways", "Value": nodesRef.current.filter(n => n.type === "gateway").length },
+        { "Item": "LRAs", "Value": nodesRef.current.filter(n => n.type === "lra").length },
+        { "Item": "SRAs", "Value": nodesRef.current.filter(n => n.type === "sra").length },
+        { "Item": "Single Modems", "Value": nodesRef.current.filter(n => n.type === "single" || n.outOfRange).length }
+      ];
+      const recRows = recommendations.map(r => ({ "Recommendation": r.text }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nodeRows), "Nodes");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(connectionRows), "Connections");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recRows), "Recommendations");
+      const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      folder.file(folderName + "-report.xlsx", excelBuffer);
+      const networkData = { nodes: nodesRef.current.map(n => ({ name: n.name, type: n.type, lat: n.lat, lng: n.lng, height: n.height, range: n.range })), fccTowersVisible: showFCCTowers };
+      folder.file(folderName + "-network.json", JSON.stringify(networkData, null, 2));
+      const mapContainer = containerRef.current;
+      const screenshotCanvas = await html2canvas(mapContainer, { useCORS: true, allowTaint: true, backgroundColor: null });
+      const dataURL = screenshotCanvas.toDataURL("image/png");
+      const imgData = dataURL.split(",")[1];
+      folder.file(folderName + "-map.png", imgData, { base64: true });
+      const url = window.location.href;
+      folder.file("Open RF Planner.url", "[InternetShortcut]\nURL=" + url + "\n");
+      const content = await zip.generateAsync({ type: "blob" });
+      const blobUrl = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = folderName + ".zip";
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    }
+  });
+}
   function loadNetwork(e){
-    const file = e.target.files[0];
-    if(!file) return;
-    e.target.value = "";
-    const reader=new FileReader();
-    reader.onload=(evt)=>{
-      const raw=JSON.parse(evt.target.result); const map=mapRef.current;
-      let nodeData; let fccVisible=false;
-      if(Array.isArray(raw)){nodeData=raw;}else{nodeData=raw.nodes||[];fccVisible=raw.fccTowersVisible||false;}
-      nodesRef.current.forEach(n=>{if(n.marker)n.marker.remove();}); nodesRef.current=[];
-      nodeData.forEach(n=>{addNode(map,n.lng,n.lat,n.type,n.name,false,n.height); if(n.modbusId) nodesRef.current[nodesRef.current.length-1].modbusId = n.modbusId;});
-      if(fccVisible&&!showFCCTowers){toggleFCCTowers();}else if(!fccVisible&&showFCCTowers){toggleFCCTowers();}
-      // Update project tab name to match file
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const raw = JSON.parse(evt.target.result);
+
+      let nodeData;
+      let fccVisible = false;
+      if (Array.isArray(raw)) {
+        nodeData = raw;
+      } else {
+        nodeData = raw.nodes || [];
+        fccVisible = raw.fccTowersVisible || false;
+      }
+
+      // Count gateways in the saved file
+      const gatewayCount = nodeData.filter(n => n.type === "gateway").length;
       const fileName = file.name.replace(/\.json$/, "");
-      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, name: fileName } : p));
-      let avgLat=0,avgLng=0; for(const n of nodeData){avgLat+=n.lat;avgLng+=n.lng;} avgLat/=nodeData.length;avgLng/=nodeData.length;
-      map.flyTo({center:[avgLng,avgLat],zoom:13});
-    };
-    reader.readAsText(file);
+
+      // If multi-gateway, ask the user how to handle it
+      if (gatewayCount >= 2) {
+        setMultiGatewayLoadPrompt({
+          nodes: nodeData,
+          gatewayCount,
+          fileName,
+          fccVisible
+        });
+        return;
+      }
+
+      // Otherwise, fall through to the standard single-project load
+      loadAsSingleProject(nodeData, fccVisible, fileName);
+    } catch (err) {
+      console.error("Load network error:", err);
+      alert("Failed to load network file.\n\n" + (err?.message || "Unknown error"));
+    }
+  };
+  reader.readAsText(file);
+}
+// =====================================================
+// MULTI-GATEWAY SPLIT HELPERS (Phase 2)
+// =====================================================
+
+// Pure distance calc (mirrors the in-app one but works on raw node data)
+function rawDistance(a, b) {
+  return Math.sqrt((a.lng - b.lng) ** 2 + (a.lat - b.lat) ** 2) * 69;
+}
+
+// Build a quick {name: node} index from a raw node list
+function indexByName(nodeData) {
+  const idx = {};
+  for (const n of nodeData) idx[n.name] = n;
+  return idx;
+}
+
+// =====================================================
+// MULTI-GATEWAY ASSIGNMENT (chain-aware)
+// Walks the full mesh tree back to a gateway, not just 1 hop.
+// Matches how real LRA→LRA→Gateway routing works.
+// =====================================================
+function computeRawGatewayAssignment(nodeData) {
+  const RANGE_LRA = 3;
+  const RANGE_SRA = 0.75;
+
+  // ----- 1. Build parent links (nearest valid neighbor that helps reach a gateway) -----
+  // Step A: sort by priority — gateways first, then LRAs, then SRAs
+  const sorted = [...nodeData].sort((x, y) => {
+    const order = { gateway: 0, lra: 1, sra: 2, single: 3 };
+    return order[x.type] - order[y.type];
+  });
+
+  const links = {}; // name -> parent name
+
+  // First pass: connect every non-gateway, non-single node to its nearest valid neighbor
+  for (const a of sorted) {
+    if (a.type === "gateway" || a.type === "single") continue;
+
+    let bestParent = null;
+    let bestDist = Infinity;
+
+    for (const b of nodeData) {
+      if (b === a) continue;
+      if (b.type === "single") continue;
+
+      const d = rawDistance(a, b);
+      // If we're an SRA, our range is short; if we're an LRA, our range is long
+      const myRange = (a.type === "lra") ? RANGE_LRA : RANGE_SRA;
+      // The link's effective range is also constrained by the other side
+      const partnerRange = (b.type === "lra" || b.type === "gateway") ? RANGE_LRA : RANGE_SRA;
+      const linkRange = Math.min(myRange, partnerRange);
+
+      if (d > linkRange) continue;
+
+      if (d < bestDist) {
+        bestDist = d;
+        bestParent = b.name;
+      }
+    }
+
+    if (bestParent) links[a.name] = bestParent;
   }
+
+  // ----- 2. Walk parent chain to find each node's gateway -----
+  const nodeIdx = {};
+  for (const n of nodeData) nodeIdx[n.name] = n;
+
+  function findGatewayFor(startName) {
+    const visited = new Set();
+    let current = startName;
+    for (let i = 0; i < 100; i++) {
+      if (visited.has(current)) return null;
+      visited.add(current);
+
+      const node = nodeIdx[current];
+      if (!node) return null;
+      if (node.type === "gateway") return node;
+
+      const next = links[current];
+      if (!next) return null;
+      current = next;
+    }
+    return null;
+  }
+
+  // ----- 3. Build the final assignment -----
+  const assignment = {}; // nodeName -> gatewayName  (null if disconnected/single)
+  for (const n of nodeData) {
+    if (n.type === "gateway") {
+      assignment[n.name] = n.name;
+    } else if (n.type === "single") {
+      assignment[n.name] = null;
+    } else {
+      const gw = findGatewayFor(n.name);
+      assignment[n.name] = gw ? gw.name : null;
+    }
+  }
+
+  return assignment;
+}
+
+// Find the closest non-gateway node to a given gateway → used for tab name
+function nearestWellName(gateway, nodeData) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const n of nodeData) {
+    if (n.type === "gateway") continue;
+    const d = rawDistance(gateway, n);
+    if (d < bestDist) {
+      bestDist = d;
+      best = n;
+    }
+  }
+  return best ? best.name : gateway.name;
+}
+
+// Apply a raw nodeData list to the live map (replaces current network)
+// Apply a raw nodeData list to the live map (replaces current network)
+// If `focusNode` is provided, zoom in on that node instead of centering on the whole group.
+function applyNodeDataToMap(nodeData, focusNode = null) {
+  const map = mapRef.current;
+  if (!map) return;
+
+  nodesRef.current.forEach(n => { if (n.marker) n.marker.remove(); });
+  nodesRef.current = [];
+
+  for (const n of nodeData) {
+    addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+    const created = nodesRef.current[nodesRef.current.length - 1];
+    if (n.modbusId) created.modbusId = n.modbusId;
+  }
+
+  if (focusNode) {
+    // Zoom to the gateway for this tab
+    map.flyTo({ center: [focusNode.lng, focusNode.lat], zoom: 13 });
+  } else if (nodeData.length > 0) {
+    // Default: center on average position (used for the Overall tab)
+    let avgLat = 0, avgLng = 0;
+    for (const n of nodeData) { avgLat += n.lat; avgLng += n.lng; }
+    avgLat /= nodeData.length;
+    avgLng /= nodeData.length;
+    map.flyTo({ center: [avgLng, avgLat], zoom: 12 });
+  }
+
+  redraw();
+}
+// Existing single-project load (refactored out so multi-gateway can reuse it)
+function loadAsSingleProject(nodeData, fccVisible, fileName) {
+  const map = mapRef.current;
+
+  nodesRef.current.forEach(n => { if (n.marker) n.marker.remove(); });
+  nodesRef.current = [];
+
+  nodeData.forEach(n => {
+    addNode(map, n.lng, n.lat, n.type, n.name, true, n.height);
+    if (n.modbusId) nodesRef.current[nodesRef.current.length - 1].modbusId = n.modbusId;
+  });
+
+  if (fccVisible && !showFCCTowers) { toggleFCCTowers(); }
+  else if (!fccVisible && showFCCTowers) { toggleFCCTowers(); }
+
+  // Update active project tab name to match file
+  setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, name: fileName } : p));
+
+  // Center map
+  let avgLat = 0, avgLng = 0;
+  for (const n of nodeData) { avgLat += n.lat; avgLng += n.lng; }
+  avgLat /= nodeData.length;
+  avgLng /= nodeData.length;
+  map.flyTo({ center: [avgLng, avgLat], zoom: 13 });
+
+  redraw();
+}
   // =====================================================
 // NETWORK ANALYSIS (v2 — aligned with new optimizer rules)
 //
@@ -2252,27 +2510,44 @@ async function newAutoOptimize() {
   }
 
   function switchProject(newId){
-    if(newId === activeProjectId) return;
-    // Save current project
-    projectDataRef.current[activeProjectId] = serializeProject();
-    // Load new project
-    const newData = projectDataRef.current[newId] || null;
-    loadProjectToMap(newData);
-    setActiveProjectId(newId);
+  if (newId === activeProjectId) return;
+
+  // Save current project state
+  projectDataRef.current[activeProjectId] = serializeProject();
+
+  // Load new project's data
+  const newData = projectDataRef.current[newId] || null;
+
+  if (newData && newData.nodes && newData.nodes.length > 0) {
+    // If this tab has a gatewayName tied to it, zoom in on that gateway
+    let focusNode = null;
+    if (newData.gatewayName) {
+      focusNode = newData.nodes.find(n => n.name === newData.gatewayName);
+    }
+    applyNodeDataToMap(newData.nodes, focusNode);
+  } else {
+    // Empty / unsaved tab — clear the map
+    loadProjectToMap(null);
   }
 
+  setActiveProjectId(newId);
+}
+
   function addProject(){
-    const id = nextProjectIdRef.current++;
-    const name = prompt("Project name:", `Project ${id}`);
-    if(!name || !name.trim()) return;
-    // Save current project first
-    projectDataRef.current[activeProjectId] = serializeProject();
-    // Create new empty project
-    setProjects(prev => [...prev, { id, name: name.trim() }]);
-    projectDataRef.current[id] = null;
-    loadProjectToMap(null);
-    setActiveProjectId(id);
-  }
+  const id = nextProjectIdRef.current++;
+  setTextPrompt({
+    title: "New project name",
+    defaultValue: `Project ${id}`,
+    onConfirm: (name) => {
+      if (!name) return;
+      projectDataRef.current[activeProjectId] = serializeProject();
+      setProjects(prev => [...prev, { id, name }]);
+      projectDataRef.current[id] = null;
+      loadProjectToMap(null);
+      setActiveProjectId(id);
+    }
+  });
+}
 
   function deleteProject(id){
     if(projects.length <= 1) return;
@@ -2288,14 +2563,363 @@ async function newAutoOptimize() {
     }
   }
 
-  function renameProject(id){
-    const current = projects.find(p => p.id === id);
-    const newName = prompt("Rename project:", current?.name || "");
-    if(!newName || !newName.trim()) return;
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName.trim() } : p));
-  }
+ function renameProject(id){
+  const current = projects.find(p => p.id === id);
+  setTextPrompt({
+    title: "Rename project",
+    defaultValue: current?.name || "",
+    onConfirm: (newName) => {
+      if (!newName) return;
+      setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName } : p));
+    }
+  });
+}
 
 return (<div style={{display:"flex",height:"100vh"}}>
+{/* ===== MULTI-GATEWAY LOAD PROMPT ===== */}
+{multiGatewayLoadPrompt && (
+  <div style={{
+    position: "fixed",
+    top: 0, left: 0,
+    width: "100vw", height: "100vh",
+    background: "rgba(10,10,20,0.78)",
+    backdropFilter: "blur(2px)",
+    zIndex: 6000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
+  }}>
+    <div style={{
+      background: "linear-gradient(135deg,#1a1a2e,#0d0d1a)",
+      border: "1px solid rgba(0,188,212,0.4)",
+      borderRadius: 10,
+      padding: "22px 28px",
+      minWidth: 360,
+      maxWidth: 460,
+      color: "#fff",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.6)"
+    }}>
+      <div style={{
+        fontWeight: "bold",
+        fontSize: 16,
+        color: "#00bcd4",
+        marginBottom: 6
+      }}>
+        🗂️ Multi-Gateway Project Detected
+      </div>
+
+      <div style={{ color: "#bbb", fontSize: 13, marginBottom: 14, lineHeight: 1.4 }}>
+        <strong>{multiGatewayLoadPrompt.fileName}</strong> contains <strong>{multiGatewayLoadPrompt.gatewayCount} gateways</strong>.
+        <br/>
+        Would you like to split it into project tabs?
+        <br/><br/>
+        <span style={{ color: "#888", fontSize: 12 }}>
+          • <strong>Yes</strong> → creates an <em>Overall</em> tab + one tab per gateway (installer view)<br/>
+          • <strong>No</strong> → loads as a single project like before
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={async () => {
+  const { nodes, fccVisible, fileName } = multiGatewayLoadPrompt;
+  setMultiGatewayLoadPrompt(null);
+
+  setLoadingState({
+    title: "Splitting project…",
+    subtitle: "Loading network and computing routes"
+  });
+
+  // -----------------------------------------------
+  // STEP 1: Load all nodes onto the live map first
+  // -----------------------------------------------
+  applyNodeDataToMap(nodes);
+  await new Promise(res => setTimeout(res, 50));
+
+  // -----------------------------------------------
+  // STEP 2: Run the REAL routing engine
+  // -----------------------------------------------
+  setLoadingState({
+    title: "Splitting project…",
+    subtitle: "Mapping nodes to gateways"
+  });
+  await computeLinks();
+
+  const liveNodes = nodesRef.current;
+  const gateways = liveNodes.filter(n => n.type === "gateway");
+
+  // -----------------------------------------------
+  // STEP 3: Determine each node's true gateway
+  // - non-gateway nodes: use real getPath()
+  // - gateway nodes: belong to themselves only (prevents gateway-to-gateway nesting)
+  // - disconnected/single nodes: nearest gateway by distance
+  // -----------------------------------------------
+  function nearestGatewayByDistance(node, gws) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const gw of gws) {
+      const d = distance(node, gw);
+      if (d < bestDist) { bestDist = d; best = gw; }
+    }
+    return best;
+  }
+
+  const assignment = {}; // nodeName -> gatewayName
+
+  for (const n of liveNodes) {
+    if (n.type === "gateway") {
+      // Gateways belong to themselves only
+      assignment[n.name] = n.name;
+      continue;
+    }
+
+    if (n.type === "single") {
+      // Single modems → nearest gateway by distance
+      const gw = nearestGatewayByDistance(n, gateways);
+      assignment[n.name] = gw ? gw.name : null;
+      continue;
+    }
+
+    // Normal node — try real mesh path first
+    const path = getPath(n);
+    const gw = path.find(p => p.type === "gateway");
+    if (gw) {
+      assignment[n.name] = gw.name;
+    } else {
+      // Disconnected → assign to nearest gateway by distance
+      const fallback = nearestGatewayByDistance(n, gateways);
+      assignment[n.name] = fallback ? fallback.name : null;
+    }
+  }
+
+  // -----------------------------------------------
+  // STEP 4: Build per-gateway subsets (with gateway count per gateway)
+  // -----------------------------------------------
+  function snapshotNode(n) {
+    return {
+      name: n.name,
+      type: n.type,
+      lat: n.lat,
+      lng: n.lng,
+      height: n.height,
+      range: n.range,
+      modbusId: n.modbusId || null
+    };
+  }
+
+  const overallSnapshot = liveNodes.map(snapshotNode);
+
+  const subsetByGateway = {};
+  for (const gw of gateways) subsetByGateway[gw.name] = [];
+
+  for (const n of liveNodes) {
+    const owner = assignment[n.name];
+    if (!owner) continue;
+    if (subsetByGateway[owner]) {
+      subsetByGateway[owner].push(snapshotNode(n));
+    }
+  }
+
+  // -----------------------------------------------
+  // STEP 5: Apply 20-tab cap → keep biggest gateways
+  // -----------------------------------------------
+  const TAB_LIMIT = 20;
+  let gatewaysForTabs = gateways;
+
+  if (gateways.length > TAB_LIMIT) {
+    const proceed = confirm(
+      `This file has ${gateways.length} gateways.\n\n` +
+      `Load only the first ${TAB_LIMIT} as tabs (by node count)?\n\n` +
+      `OK = Yes, cap at ${TAB_LIMIT} tabs\n` +
+      `Cancel = Load as a single project instead`
+    );
+
+    if (!proceed) {
+      loadAsSingleProject(nodes, fccVisible, fileName);
+      setLoadingState(null);
+      return;
+    }
+
+    gatewaysForTabs = [...gateways].sort((a, b) =>
+      (subsetByGateway[b.name]?.length || 0) -
+      (subsetByGateway[a.name]?.length || 0)
+    ).slice(0, TAB_LIMIT);
+  }
+
+  // -----------------------------------------------
+  // STEP 6: Build the tabs
+  // -----------------------------------------------
+  const newProjects = [];
+  const newProjectData = {};
+
+  // Overall tab
+  const overallId = nextProjectIdRef.current++;
+  newProjects.push({ id: overallId, name: `${fileName} — Overall` });
+  newProjectData[overallId] = {
+    nodes: overallSnapshot,
+    undoStack: [],
+    redoStack: [],
+    mapCenter: null,
+    mapZoom: null,
+    isOverall: true
+  };
+
+  // One tab per qualifying gateway, named after nearest well
+  for (const gw of gatewaysForTabs) {
+    const tabId = nextProjectIdRef.current++;
+    const tabName = `${gw.name} — ${nearestWellName(gw, nodes)}`;
+    newProjects.push({ id: tabId, name: tabName });
+    newProjectData[tabId] = {
+      nodes: subsetByGateway[gw.name],
+      undoStack: [],
+      redoStack: [],
+      mapCenter: null,
+      mapZoom: null,
+      isOverall: false,
+      gatewayName: gw.name
+    };
+  }
+
+  // -----------------------------------------------
+  // STEP 7: Activate the new tab set
+  // -----------------------------------------------
+  projectDataRef.current[activeProjectId] = serializeProject();
+
+  setProjects(newProjects);
+  for (const id of Object.keys(newProjectData)) {
+    projectDataRef.current[id] = newProjectData[id];
+  }
+
+  setActiveProjectId(overallId);
+  applyNodeDataToMap(overallSnapshot);
+
+  if (fccVisible && !showFCCTowers) toggleFCCTowers();
+  else if (!fccVisible && showFCCTowers) toggleFCCTowers();
+
+  setLoadingState(null);
+}}
+        >
+          ✅ Yes, split into tabs
+        </button>
+
+        <button
+          onClick={() => {
+            const { nodes, fccVisible, fileName } = multiGatewayLoadPrompt;
+            setMultiGatewayLoadPrompt(null);
+            loadAsSingleProject(nodes, fccVisible, fileName);
+          }}
+          style={{
+            flex: 1,
+            padding: "8px 12px",
+            background: "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 13
+          }}
+        >
+          ➡️ No, load as one project
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{/* ===== TEXT PROMPT MODAL ===== */}
+{textPrompt && (
+  <div style={{
+    position: "fixed",
+    top: 0, left: 0,
+    width: "100vw", height: "100vh",
+    background: "rgba(10,10,20,0.78)",
+    backdropFilter: "blur(2px)",
+    zIndex: 7000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
+  }}>
+    <div style={{
+      background: "linear-gradient(135deg,#1a1a2e,#0d0d1a)",
+      border: "1px solid rgba(0,188,212,0.4)",
+      borderRadius: 10,
+      padding: "22px 28px",
+      minWidth: 340,
+      color: "#fff",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.6)"
+    }}>
+      <div style={{ fontWeight: "bold", fontSize: 16, color: "#00bcd4", marginBottom: 10 }}>
+        {textPrompt.title || "Enter value"}
+      </div>
+
+      <input
+        autoFocus
+        defaultValue={textPrompt.defaultValue || ""}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const v = e.currentTarget.value.trim();
+            const cb = textPrompt.onConfirm;
+            setTextPrompt(null);
+            if (cb) cb(v);
+          } else if (e.key === "Escape") {
+            setTextPrompt(null);
+          }
+        }}
+        id="__text_prompt_input"
+        style={{
+          width: "100%",
+          padding: "8px 10px",
+          background: "#222",
+          color: "#fff",
+          border: "1px solid #555",
+          borderRadius: 4,
+          fontSize: 14,
+          boxSizing: "border-box",
+          marginBottom: 12
+        }}
+      />
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => {
+            const el = document.getElementById("__text_prompt_input");
+            const v = el ? el.value.trim() : "";
+            const cb = textPrompt.onConfirm;
+            setTextPrompt(null);
+            if (cb) cb(v);
+          }}
+          style={{
+            flex: 1,
+            padding: "8px 12px",
+            background: "#4caf50",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontWeight: "bold",
+            fontSize: 13
+          }}
+        >
+          ✅ OK
+        </button>
+        <button
+          onClick={() => setTextPrompt(null)}
+          style={{
+            flex: 1,
+            padding: "8px 12px",
+            background: "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 13
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 {/* ===== PROGRESS OVERLAY (spinner only) ===== */}
 {loadingState && (
   <div style={{

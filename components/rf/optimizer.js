@@ -404,7 +404,10 @@ async function selectGatewayAnchorInCluster(cluster) {
 }
 
 // ----- Place a new gateway 100 ft north of the chosen anchor -----
-async function placeGatewayInCluster(cluster, addNodeFn, mapRef, existingGatewayCount) {
+
+// ----- Place a new gateway 100 ft north of the chosen anchor -----
+// allNodes = the full nodes array (used to ensure unique gateway names)
+async function placeGatewayInCluster(cluster, addNodeFn, mapRef, allNodes) {
   const anchor = await selectGatewayAnchorInCluster(cluster);
   if (!anchor) return null;
 
@@ -412,11 +415,26 @@ async function placeGatewayInCluster(cluster, addNodeFn, mapRef, existingGateway
   const gwLng = anchor.lng;
   const gwLat = anchor.lat + offsetLat;
 
-  const gwName = `GATEWAY-${existingGatewayCount + 1}`;
+  // Unique gateway name with collision protection
+  const taken = new Set();
+  if (Array.isArray(allNodes)) {
+    for (const n of allNodes) {
+      if (n && n.type === "gateway") taken.add(n.name);
+    }
+  }
+  let i = 1;
+  let gwName;
+  while (true) {
+    gwName = `GATEWAY-${i}`;
+    if (!taken.has(gwName)) break;
+    i++;
+  }
+
   addNodeFn(mapRef, gwLng, gwLat, "gateway", gwName, true, DEFAULT_HEIGHT_GATEWAY);
 
   return { anchor, gwLng, gwLat, name: gwName };
 }
+
 
 // ----- Count how many nodes route through each gateway -----
 function countNodesPerGateway(nodes, linksMap) {
@@ -475,8 +493,7 @@ async function runMultiGatewayPass({ nodes, addNodeFn, mapRef, onProgress }) {
       );
       if (tooClose) continue;
 
-      const gwCount = nodes.filter(n => n.type === "gateway").length;
-      const result = await placeGatewayInCluster(cluster, addNodeFn, mapRef, gwCount);
+      const result = await placeGatewayInCluster(cluster, addNodeFn, mapRef, nodes);
       if (result) placedAny = true;
     }
 
@@ -546,8 +563,7 @@ async function runGatewayCapPass({ nodes, addNodeFn, mapRef, onProgress }) {
     );
     if (tooClose) return;
 
-    const gwCount = nodes.filter(n => n.type === "gateway").length;
-    const placed = await placeGatewayInCluster(candidateCluster, addNodeFn, mapRef, gwCount);
+    const placed = await placeGatewayInCluster(candidateCluster, addNodeFn, mapRef, nodes);
     if (!placed) return;
 
     // NOTE: intentionally NOT re-running promotion here.
